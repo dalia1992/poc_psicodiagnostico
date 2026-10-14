@@ -3,7 +3,7 @@ import json
 import time
 
 from .esquemas import ReporteClinico, SintomasPaciente
-from .reintentos import con_reintentos_503
+from .reintentos import con_reintentos_503, con_reintentos_formato
 
 PROMPT_EXTRACTOR = """Eres un asistente que extrae datos clínicos de la viñeta de un paciente, ya anonimizada (los nombres, lugares y organizaciones aparecen como [PER_1], [LOC_1], [ORG_1]).
 Reglas:
@@ -29,7 +29,7 @@ def crear_extractor(llm, esperar=time.sleep):
 
     def extraer(texto_anon: str) -> dict:
         mensajes = [("system", PROMPT_EXTRACTOR), ("human", texto_anon)]
-        return con_reintentos_503(estructurado.invoke, mensajes, esperar=esperar).model_dump()
+        return con_reintentos_formato(con_reintentos_503, estructurado.invoke, mensajes, esperar=esperar).model_dump()
 
     return extraer
 
@@ -47,6 +47,6 @@ def crear_redactor(llm, esperar=time.sleep):
             "notas_del_agente": notas_agente,
         }
         mensajes = [("system", PROMPT_REDACTOR), ("human", json.dumps(contexto, ensure_ascii=False))]
-        return con_reintentos_503(estructurado.invoke, mensajes, esperar=esperar)
+        return con_reintentos_formato(con_reintentos_503, estructurado.invoke, mensajes, esperar=esperar)
 
     return redactar

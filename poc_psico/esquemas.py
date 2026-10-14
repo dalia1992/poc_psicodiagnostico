@@ -3,6 +3,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+LISTA = "Lista JSON de textos cortos, un elemento por dato (nunca un solo texto con varios datos). "
+
 
 class SintomasPaciente(BaseModel):
     """Datos clínicos extraídos de la viñeta ya anonimizada."""
@@ -15,18 +17,20 @@ class SintomasPaciente(BaseModel):
     sexo: Optional[Literal["femenino", "masculino", "otro"]] = Field(
         default=None, description="Sexo del paciente solo si aparece; si no, null"
     )
-    cognitivos: list[str] = Field(default_factory=list, description="Síntomas cognitivos (atención, memoria, pensamiento)")
-    emocionales: list[str] = Field(default_factory=list, description="Síntomas emocionales o afectivos")
-    conductuales: list[str] = Field(default_factory=list, description="Cambios conductuales observables")
+    cognitivos: list[str] = Field(default_factory=list, description=LISTA + "Síntomas cognitivos (atención, memoria, pensamiento)", examples=[["dificultad para concentrarse"]])
+    emocionales: list[str] = Field(default_factory=list, description=LISTA + "Síntomas emocionales o afectivos", examples=[["tristeza casi todos los días", "sentimientos de culpa"]])
+    conductuales: list[str] = Field(default_factory=list, description=LISTA + "Cambios conductuales observables", examples=[["insomnio de conciliación"]])
     afectacion_social: list[str] = Field(
-        default_factory=list, description="Afectación en el trabajo, la familia o las relaciones sociales"
+        default_factory=list, description=LISTA + "Afectación en el trabajo, la familia o las relaciones sociales",
+        examples=[["falta al trabajo con frecuencia"]],
     )
     temporalidad: Optional[str] = Field(
         default=None, description="Duración o evolución de los síntomas si se menciona; si no, null. No inventar"
     )
     datos_faltantes: list[str] = Field(
         default_factory=list,
-        description="Datos clínicos relevantes que no aparecen y deberían recabarse (edad, duración, severidad, etc.)",
+        description=LISTA + "Datos clínicos relevantes que no aparecen y deberían recabarse (edad, duración, severidad, etc.)",
+        examples=[["severidad de los síntomas", "antecedentes familiares"]],
     )
 
     def hay_sintomas(self) -> bool:
@@ -36,9 +40,9 @@ class SintomasPaciente(BaseModel):
 class HipotesisRedactada(BaseModel):
     codigo: str = Field(description="Código CIE-11 EXACTO de uno de los candidatos recibidos; nunca otro")
     justificacion: str = Field(description="Por qué los síntomas del caso encajan con los criterios de esa entidad")
-    criterios_cumplidos: list[str] = Field(default_factory=list, description="Criterios que el caso sí cumple")
+    criterios_cumplidos: list[str] = Field(default_factory=list, description=LISTA + "Criterios que el caso sí cumple")
     criterios_no_cumplidos: list[str] = Field(
-        default_factory=list, description="Criterios que faltan o no se pueden confirmar con la información dada"
+        default_factory=list, description=LISTA + "Criterios que faltan o no se pueden confirmar con la información dada"
     )
 
 
@@ -48,8 +52,12 @@ class PruebaSugerida(BaseModel):
 
 
 class ReporteClinico(BaseModel):
-    hipotesis: list[HipotesisRedactada] = Field(description="Ordenadas de la más a la menos plausible")
-    ambiguedades: list[str] = Field(default_factory=list, description="Ambigüedades en la búsqueda o en el caso")
-    diferenciales: list[str] = Field(default_factory=list, description="Diagnósticos diferenciales y exclusiones a considerar")
-    datos_faltantes: list[str] = Field(default_factory=list, description="Datos a recabar para confirmar o descartar")
-    pruebas: list[PruebaSugerida] = Field(default_factory=list, description="Pruebas complementarias: solo nombre y motivo")
+    hipotesis: list[HipotesisRedactada] = Field(description="Lista de objetos, ordenados de la más a la menos plausible")
+    ambiguedades: list[str] = Field(default_factory=list, description=LISTA + "Ambigüedades en la búsqueda o en el caso")
+    diferenciales: list[str] = Field(default_factory=list, description=LISTA + "Diagnósticos diferenciales y exclusiones a considerar")
+    datos_faltantes: list[str] = Field(
+        default_factory=list,
+        description=LISTA + "Datos a recabar para confirmar o descartar",
+        examples=[["duración exacta de los síntomas", "antecedentes personales"]],
+    )
+    pruebas: list[PruebaSugerida] = Field(default_factory=list, description="Lista de objetos {nombre, motivo}. Pruebas complementarias: solo nombre y motivo")

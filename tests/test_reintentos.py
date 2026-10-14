@@ -99,3 +99,36 @@ async def test_version_asincrona_se_recupera():
 
     assert await acon_reintentos_503(funcion, aesperar=esperar) == "listo"
     assert esperas == [1, 2]
+
+
+def test_reintenta_si_el_formato_es_invalido():
+    from pydantic import BaseModel, ValidationError
+
+    from poc_psico.reintentos import con_reintentos_formato
+
+    class M(BaseModel):
+        x: list[str]
+
+    llamadas = []
+
+    def f():
+        llamadas.append(1)
+        if len(llamadas) < 3:
+            return M(x="no es lista")
+        return M(x=["ok"])
+
+    assert con_reintentos_formato(f).x == ["ok"]
+    assert len(llamadas) == 3
+
+
+def test_formato_invalido_persistente_se_propaga():
+    import pytest
+    from pydantic import BaseModel, ValidationError
+
+    from poc_psico.reintentos import con_reintentos_formato
+
+    class M(BaseModel):
+        x: list[str]
+
+    with pytest.raises(ValidationError):
+        con_reintentos_formato(lambda: M(x="mal"))

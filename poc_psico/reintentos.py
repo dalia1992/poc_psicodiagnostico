@@ -43,3 +43,25 @@ async def acon_reintentos_503(funcion, *args, aesperar=asyncio.sleep, **kwargs):
             segundos = _espera(intento)
             logger.warning("503 (servicio sobrecargado): reintento %d de %d en %d s", intento + 1, REINTENTOS, segundos)
             await aesperar(segundos)
+
+
+REINTENTOS_FORMATO = 2
+
+
+def es_error_de_formato(error: Exception) -> bool:
+    """True si el LLM devolvió una salida estructurada inválida (ValidationError / OutputParserException)."""
+    from langchain_core.exceptions import OutputParserException
+    from pydantic import ValidationError
+
+    return isinstance(error, (ValidationError, OutputParserException))
+
+
+def con_reintentos_formato(funcion, *args, **kwargs):
+    """Reintenta sin espera si el modelo rompió el contrato (p. ej. una lista entregada como texto). 503 se maneja aparte."""
+    for intento in range(REINTENTOS_FORMATO + 1):
+        try:
+            return funcion(*args, **kwargs)
+        except Exception as error:
+            if not es_error_de_formato(error) or intento == REINTENTOS_FORMATO:
+                raise
+            logger.warning("Salida con formato inválido: reintento %d de %d", intento + 1, REINTENTOS_FORMATO)

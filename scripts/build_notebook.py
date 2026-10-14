@@ -124,7 +124,7 @@ def construir():
             from transformers import pipeline
 
             ner_es = pipeline("ner", model="MMG/xlm-roberta-large-ner-spanish", aggregation_strategy="simple")
-            print(ner_es("Mi nombre es Jorge Blanco, vivo en Bogotá y trabajo para BSG Institute."))
+            print(ner_es("Mi nombre es Dalia Camacho y vivo en CDMX"))
             """),
         md("## 2 · Tu caso (EDITA AQUÍ)"),
         code("""
