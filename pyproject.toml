@@ -1,0 +1,28 @@
+[project]
+name = "poc-psicodiagnostico"
+version = "0.1.0"
+description = "PoC de apoyo al psicodiagnóstico (LC-B + LC-C)"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=1.4,<2",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.6,<2",
+    "langgraph>=1.2,<2",
+    "langchain-mcp-adapters>=0.1",
+    "pydantic>=2.7",
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Solo si quieres correr el NER y el OCR en tu equipo; en Colab ya vienen instalados.
+ner = ["transformers>=4.44", "torch>=2.4"]
+# Solo para abrir el notebook en tu equipo (Jupyter local).
+notebook = ["jupyterlab>=4", "ipykernel>=6", "pandas>=2"]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "nbformat>=5.10"]
+
+[tool.uv]
+# El proyecto no es una librería instalable: solo se resuelven sus dependencias.
+package = false

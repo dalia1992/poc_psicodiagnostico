@@ -1,0 +1,16 @@
+{
+  "model": "respan/span-01-lite-20260925",
+  "answers": {
+    "es_clinico": {
+      "type": "noul",
+      "noul": 0.014724707
+    }
+  },
+  "usage": {
+    "input_tokens": 79,
+    "output_tokens": 0,
+    "cost": 0
+  },
+  "id": "gen-dec-1791751969-rni3dWuWPdmeNpsb0oQm",
+  "provider": "Respan"
+}
