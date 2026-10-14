@@ -1,8 +1,11 @@
 """Guardrail de contexto clínico: Decisions API de OpenRouter, con plan B por LLM."""
+import time
+
 import requests
 from pydantic import BaseModel, Field
 
 from .errores import FlujoDetenido
+from .reintentos import con_reintentos_503
 
 URL_DECISIONS = "https://openrouter.ai/api/alpha/decisions"
 MODELO_GUARDRAIL = "respan/span-01-lite:free"
@@ -44,19 +47,26 @@ def extraer_prob(respuesta: dict, ruta=None) -> float:
     return prob
 
 
-def consultar_decisions(texto, api_key, modelo=MODELO_GUARDRAIL, post=requests.post, timeout=30, ruta=None) -> float:
-    try:
-        r = post(
-            URL_DECISIONS,
-            json=construir_payload(texto, modelo),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=timeout,
-        )
-    except requests.RequestException as e:
-        raise GuardrailError(f"No se pudo llamar a la Decisions API: {e}") from e
-    if r.status_code != 200:
-        raise GuardrailError(f"La Decisions API respondió {r.status_code}: {r.text[:200]}")
-    return extraer_prob(r.json(), ruta)
+def consultar_decisions(
+    texto, api_key, modelo=MODELO_GUARDRAIL, post=requests.post, timeout=30, ruta=None, esperar=time.sleep
+) -> float:
+    def _llamar():
+        try:
+            r = post(
+                URL_DECISIONS,
+                json=construir_payload(texto, modelo),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                timeout=timeout,
+            )
+        except requests.RequestException as e:
+            raise GuardrailError(f"No se pudo llamar a la Decisions API: {e}") from e
+        if r.status_code != 200:
+            raise GuardrailError(f"La Decisions API respondió {r.status_code}: {r.text[:200]}")
+        return r
+
+    # Un 503 (sobrecarga) se reintenta hasta 3 veces con 1, 2 y 4 s; otros errores fallan de inmediato.
+    respuesta = con_reintentos_503(_llamar, esperar=esperar)
+    return extraer_prob(respuesta.json(), ruta)
 
 
 class ClasificacionClinica(BaseModel):

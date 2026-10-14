@@ -86,7 +86,7 @@ Dos pruebas se omiten hasta que existan los fixtures reales de `scripts/spike_gu
 
 ## Qué editar
 
-Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL del MCP, tools permitidas, prompt del agente, tope de pasos y casos de prueba. Los contratos (`poc_psico/esquemas.py`) y los prompts del extractor y del redactor (`poc_psico/nodos.py`) se editan en esos archivos. Para regenerar el notebook tras cambiar `scripts/build_notebook.py`:
+Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL del MCP, tools permitidas, prompt del agente, máximo de rondas del agente y casos de prueba. Los contratos (`poc_psico/esquemas.py`) y los prompts del extractor y del redactor (`poc_psico/nodos.py`) se editan en esos archivos. Para regenerar el notebook tras cambiar `scripts/build_notebook.py`:
 
 ```bash
 ~/.venvs/poc_psico/bin/python scripts/build_notebook.py
@@ -100,9 +100,10 @@ Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL
 | `401` o `User not found` | La clave está mal copiada, o el secreto no tiene *Acceso del notebook* activado (Colab). |
 | El notebook te pide la clave por teclado | No encontró `OPENROUTER_API_KEY`: revisa que `.env` esté en la carpeta del proyecto (o que `POC_ENV_FILE` apunte a él) y que la línea no tenga espacios ni comillas de más. |
 | `429` o `rate limit` (también en el guardrail: `La Decisions API respondió 429`) | Superaste 20 llamadas por minuto o 50 por día; el límite diario cuenta modelos gratuitos y Decisions API juntos. Espera al día siguiente, o carga 10 créditos en OpenRouter para subir el límite a 1000 por día. El flujo falla cerrado: nunca deja pasar un texto sin guardrail. |
+| `503` o `system overload` | El servicio está sobrecargado. El guardrail, el extractor, el redactor y las llamadas del agente al modelo reintentan solos 3 veces, esperando 1, 2 y 4 segundos (`poc_psico/reintentos.py`); verás un aviso por cada reintento. Si persiste, el flujo se detiene con el error. |
 | `GuardrailError: Formato inesperado de la Decisions API` | La respuesta de `span-01-lite` no tiene la forma esperada: revisa `RUTA_PROB` en `poc_psico/guardrail.py` con `scripts/spike_guardrail.py`. Si no se resuelve, usa el plan B (`guardrail_llm`) en la celda 3.1. |
 | `No se pudo conectar al MCP CIE-11` | Comprueba `AGENT_MCP_URL`. Si el servicio de Azure estaba inactivo, la primera conexión puede tardar o fallar: reintenta. |
 | El agente no llama a las tools o responde con errores de formato | El modelo gratuito puede fallar en tool calling. En la celda 1.1 cambia `MODEL_ID`, `base_url` y la clave por `gpt-4.1-mini` y `OPENAI_API_KEY`, y anótalo en la celda 6. |
-| `El agente alcanzó el tope de N pasos` | Sube `RECURSION_LIMIT` en la celda 2.1 o simplifica las tools permitidas. |
+| `El agente alcanzó el tope de N pasos` | El agente ve en cada turno cuántas rondas lleva y cuántas le quedan, y al agotarse se le quitan las tools; si aun así llega al tope, sube `MAX_RONDAS` en la celda 2.1 o simplifica las tools permitidas. |
 | `No se identificaron síntomas en el texto` | La viñeta no describe síntomas; el flujo se detiene a propósito. |
 | Tras editar un `.py` no cambia nada | Reinicia la sesión o el kernel. |

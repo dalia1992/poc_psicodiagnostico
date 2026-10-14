@@ -107,3 +107,39 @@ def test_fixtures_reales_separan_clinico_de_cocina():
     cocina = json.loads((FIXTURES / "decisions_cocina.json").read_text(encoding="utf-8"))
     p_clinico, p_cocina = extraer_prob(clinico), extraer_prob(cocina)
     assert p_clinico >= 0.5 > p_cocina
+
+
+def test_consultar_decisions_reintenta_el_503_con_1_y_2_segundos_y_se_recupera():
+    respuestas = [RespuestaFalsa(503, texto="overload"), RespuestaFalsa(503, texto="overload"), RespuestaFalsa(200, {"answers": {"es_clinico": {"noul": 0.9}}})]
+    llamadas, esperas = [], []
+
+    def post(url, json, headers, timeout):
+        llamadas.append(1)
+        return respuestas[len(llamadas) - 1]
+
+    assert consultar_decisions("texto", "k", post=post, esperar=esperas.append) == pytest.approx(0.9)
+    assert esperas == [1, 2] and len(llamadas) == 3
+
+
+def test_consultar_decisions_503_persistente_hace_3_reintentos_y_lanza_guardrail_error():
+    llamadas, esperas = [], []
+
+    def post(url, json, headers, timeout):
+        llamadas.append(1)
+        return RespuestaFalsa(503, texto="system overload")
+
+    with pytest.raises(GuardrailError, match="503"):
+        consultar_decisions("texto", "k", post=post, esperar=esperas.append)
+    assert esperas == [1, 2, 4] and len(llamadas) == 4
+
+
+def test_consultar_decisions_no_reintenta_un_429():
+    llamadas, esperas = [], []
+
+    def post(url, json, headers, timeout):
+        llamadas.append(1)
+        return RespuestaFalsa(429, texto="rate limit")
+
+    with pytest.raises(GuardrailError, match="429"):
+        consultar_decisions("texto", "k", post=post, esperar=esperas.append)
+    assert esperas == [] and len(llamadas) == 1

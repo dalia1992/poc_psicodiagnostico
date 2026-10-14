@@ -137,7 +137,7 @@ def construir():
             from poc_psico.agente import TOOLS_BASE, TOOLS_CON_SINTOMAS, PROMPT_AGENTE
             TOOLS_PERMITIDAS = TOOLS_BASE   # prueba también TOOLS_CON_SINTOMAS y compara las rondas
             SYSTEM_PROMPT_AGENTE = PROMPT_AGENTE
-            RECURSION_LIMIT = 12            # tope de pasos del agente
+            MAX_RONDAS = 5                 # rondas de tools que puede dar el agente (el agente ve cuántas lleva)
             """),
         code("""
             # EDITA AQUÍ · 2.2 Contrato de síntomas y de reporte
@@ -161,10 +161,10 @@ def construir():
             from poc_psico.nodos import crear_extractor, crear_redactor
 
             tools = await cargar_tools(AGENT_MCP_URL, TOOLS_PERMITIDAS)
-            agente = construir_agente(llm, tools, SYSTEM_PROMPT_AGENTE)
+            agente = construir_agente(llm, tools, SYSTEM_PROMPT_AGENTE, MAX_RONDAS)
 
             async def _agente(sintomas):
-                return await correr_agente(agente, sintomas, RECURSION_LIMIT)
+                return await correr_agente(agente, sintomas, MAX_RONDAS)
 
             def _guardrail(texto):
                 return consultar_decisions(texto, os.environ["OPENROUTER_API_KEY"])

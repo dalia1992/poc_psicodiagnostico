@@ -32,3 +32,11 @@ def test_conserva_las_celdas_edita_aqui_y_el_modelo_del_template():
 def test_el_notebook_no_imprime_el_reporte_en_el_registro_csv():
     codigo = "\n".join(c.source for c in construir().cells if c.cell_type == "code")
     assert "reporte_md" not in codigo.split("def describir")[1].split("\n\n")[0]
+
+
+def test_el_notebook_usa_max_rondas_y_no_el_limite_de_pasos():
+    codigo = "\n".join(c.source for c in construir().cells if c.cell_type == "code")
+    assert "MAX_RONDAS = 5" in codigo
+    assert "construir_agente(llm, tools, SYSTEM_PROMPT_AGENTE, MAX_RONDAS)" in codigo
+    assert "correr_agente(agente, sintomas, MAX_RONDAS)" in codigo
+    assert "RECURSION_LIMIT" not in codigo
