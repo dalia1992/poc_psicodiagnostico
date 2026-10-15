@@ -100,7 +100,8 @@ def construir():
             from langchain_core.caches import InMemoryCache
 
             TEMPLATE_ID = "LC-B+C"
-            MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b:free"
+            # MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b:free"
+            MODEL_ID = "anthropic/claude-haiku-5.5"
             set_llm_cache(InMemoryCache())
 
             llm = ChatOpenAI(
@@ -138,6 +139,9 @@ def construir():
             TOOLS_PERMITIDAS = TOOLS_BASE   # prueba también TOOLS_CON_SINTOMAS y compara las rondas
             SYSTEM_PROMPT_AGENTE = PROMPT_AGENTE
             MAX_RONDAS = 5                 # rondas de tools que puede dar el agente (el agente ve cuántas lleva)
+            # OCR de fotos manuscritas: "mistral" (OpenRouter, unos 4 s; la foto sale a OpenRouter y Mistral antes de anonimizar)
+            # o "local" (Ollama con qwen2.5vl:3b, unos 40 a 50 s; la foto no sale de tu equipo, solo en Jupyter local)
+            OCR_MOTOR = "mistral"
             """),
         code("""
             # EDITA AQUÍ · 2.2 Contrato de síntomas y de reporte
@@ -159,12 +163,18 @@ def construir():
             from poc_psico.grafo import Componentes, construir_workflow, ejecutar
             from poc_psico.guardrail import consultar_decisions
             from poc_psico.nodos import crear_extractor, crear_redactor
+            from poc_psico.ocr import leer_imagen, leer_imagen_mistral
 
             tools = await cargar_tools(AGENT_MCP_URL, TOOLS_PERMITIDAS)
             agente = construir_agente(llm, tools, SYSTEM_PROMPT_AGENTE, MAX_RONDAS)
 
             async def _agente(sintomas):
                 return await correr_agente(agente, sintomas, MAX_RONDAS)
+
+            def _ocr(ruta):
+                if OCR_MOTOR == "local":
+                    return leer_imagen(ruta)
+                return leer_imagen_mistral(ruta, os.environ["OPENROUTER_API_KEY"])
 
             def _guardrail(texto):
                 return consultar_decisions(texto, os.environ["OPENROUTER_API_KEY"])
@@ -176,6 +186,7 @@ def construir():
                 agente=_agente,
                 redactar=crear_redactor(llm),
                 umbral=UMBRAL_GUARDRAIL,
+                ocr=_ocr,
             )
             print("Tools:", [t.name for t in tools])
             """),
@@ -260,6 +271,16 @@ def construir():
             print(r["estado_final"], "|", r["razon"])
             from IPython.display import Markdown
             Markdown(r["reporte_md"]) if r["reporte_md"] else None
+            """),
+        code("""
+            # 5.1 · Prueba con foto de una nota manuscrita (motor en OCR_MOTOR, celda 2.1; ver README)
+            RUTA_FOTO = ""  # EDITA AQUÍ: ruta a tu foto .jpg o .png; déjalo vacío para omitir
+            from IPython.display import Markdown
+            if RUTA_FOTO:
+                r = await ejecutar(RUTA_FOTO, componentes)
+                print("Texto leído (revísalo: un error de lectura cambia el sentido clínico):\\n", r["texto_ocr"])
+                print(r["estado_final"], "|", r["razon"], "|", r["latencias"])
+                Markdown(r["reporte_md"]) if r["reporte_md"] else None
             """),
         md("""
             ## 6 · Cierre del PoC

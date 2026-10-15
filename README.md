@@ -3,16 +3,16 @@
 Convierte una viñeta clínica en texto libre en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS) y datos faltantes.
 
 ```
-texto → anonimizar (NER local) → guardrail (span-01-lite) → extraer síntomas → agente CIE-11 (MCP en Azure) → reporte
+(foto → OCR local) → texto → anonimizar (NER local) → guardrail (span-01-lite) → extraer síntomas → agente CIE-11 (MCP en Azure) → reporte
 ```
 
 Los nombres, lugares y organizaciones se sustituyen por `[PER_1]`, `[LOC_1]`, `[ORG_1]` antes de llamar a cualquier servicio externo y se reinsertan al final, solo en el reporte.
 
-> Trabaja solo con datos sintéticos o anonimizados: el endpoint gratuito de OpenRouter registra el uso.
+> Trabaja solo con datos sintéticos o anonimizados: OpenRouter y, si usas Mistral OCR, Mistral reciben tus datos y pueden registrar el uso.
 
 ## Qué necesitas
 
-- Una clave de OpenRouter: crea una cuenta en [openrouter.ai](https://openrouter.ai) y una clave en [openrouter.ai/keys](https://openrouter.ai/keys). La cuenta gratuita permite 50 llamadas al día y 20 por minuto; una corrida completa usa cerca de 8.
+- Una clave de OpenRouter: crea una cuenta en [openrouter.ai](https://openrouter.ai) y una clave en [openrouter.ai/keys](https://openrouter.ai/keys). El notebook usa `anthropic/claude-haiku-5.5`, un modelo de pago (US$0.10 de entrada y US$0.50 de salida por millón de tokens), así que la cuenta necesita créditos. La alternativa gratuita, `nvidia/nemotron-3-ultra-550b-a55b:free`, queda comentada en la celda 1.1: la cuenta gratuita permite 50 llamadas al día y 20 por minuto (una corrida completa usa cerca de 8) y en una prueba con foto tardó 194 s, contra 52 s con Haiku 5.5.
 - El servidor MCP CIE-11 en Azure ya está desplegado; su URL es el valor por defecto de `AGENT_MCP_URL` en el notebook.
 - Para Colab: una cuenta de Google. Para local: macOS o Linux y [uv](https://docs.astral.sh/uv/).
 
@@ -34,7 +34,7 @@ Los nombres, lugares y organizaciones se sustituyen por `[PER_1]`, `[LOC_1]`, `[
 8. **Prueba tu propia viñeta** en la celda 5.
 9. **Si editas el paquete** (`poc_psico/*.py` en Drive), reinicia la sesión (*Entorno de ejecución → Reiniciar sesión*) y vuelve a ejecutar: Python no recarga los módulos ya importados.
 
-Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que el texto original sí pasa por ella; no llega a ningún LLM ni a OpenRouter.
+Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que el texto original sí pasa por ella; no llega a ningún LLM ni a OpenRouter. El OCR de fotos con Mistral envía la foto a OpenRouter (ver la sección de la foto).
 
 ## Opción B: Jupyter local
 
@@ -74,6 +74,23 @@ Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que e
 
 Privacidad: en local el NER corre en tu equipo y el texto original no sale de él.
 
+## Foto de una nota manuscrita (OCR)
+
+`ejecutar()` acepta la ruta de una foto `.jpg` o `.png` en lugar del texto. La foto se lee con OCR (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. El motor se elige en `OCR_MOTOR` (celda 2.1):
+
+| Motor | Tiempo del paso (mismo caso) | Error de caracteres | La foto... |
+|---|---|---|---|
+| `"mistral"` (predeterminado): Mistral OCR vía OpenRouter | unos 3 a 4 s | 13.9 % | **sale a OpenRouter y Mistral** con los nombres sin anonimizar |
+| `"local"`: `qwen2.5vl:3b` con [Ollama](https://ollama.com) | 38 a 53 s | 5.2 % | no sale de tu equipo; solo Jupyter local |
+
+Medido con una sola foto manuscrita sintética y una corrida por motor (M1 de 8 GB, 2026-10-14): son cifras de orientación, no una tasa de error. Mistral conservó la última línea que el local perdió, pero leyó el nombre en mayúsculas ("LUCTA" por "Lucía"); el NER lo partió en dos entidades y el reporte quedó con "LU" como nombre. No se filtra el nombre, pero **revisa el nombre y `r["texto_ocr"]`**: un error de lectura puede cambiar el sentido clínico.
+
+**Mistral OCR** solo necesita `OPENROUTER_API_KEY` y funciona también en Colab. La foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por foto más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
+
+**OCR local:** instala Ollama y descarga el modelo una vez (unos 3.2 GB): `ollama pull qwen2.5vl:3b`; deja el servicio activo (`ollama serve`). Con 8 GB de RAM ocupa unos 3.7 GB y se descarga solo al terminar (`keep_alive: 0`); no lo corras a la vez que el NER. PaddleOCR-VL con transformers saturó el swap en ese equipo y se descartó. **Con datos reales usa `"local"` y Jupyter local**: es el único motor que no envía la foto a terceros.
+
+Uso: en el notebook, celda 5.1, escribe la ruta en `RUTA_FOTO`; o desde Python: `await ejecutar("foto.jpg", componentes)`. Para medir tu caso: `scripts/spike_ocr.py foto.jpg transcripcion.txt` (motor local, con tiempo y tasa de error por carácter).
+
 ## Pruebas unitarias
 
 No necesitan claves ni red; usan componentes falsos.
@@ -103,7 +120,11 @@ Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL
 | `503` o `system overload` | El servicio está sobrecargado. El guardrail, el extractor, el redactor y las llamadas del agente al modelo reintentan solos 3 veces, esperando 1, 2 y 4 segundos (`poc_psico/reintentos.py`); verás un aviso por cada reintento. Si persiste, el flujo se detiene con el error. |
 | `GuardrailError: Formato inesperado de la Decisions API` | La respuesta de `span-01-lite` no tiene la forma esperada: revisa `RUTA_PROB` en `poc_psico/guardrail.py` con `scripts/spike_guardrail.py`. Si no se resuelve, usa el plan B (`guardrail_llm`) en la celda 3.1. |
 | `No se pudo conectar al MCP CIE-11` | Comprueba `AGENT_MCP_URL`. Si el servicio de Azure estaba inactivo, la primera conexión puede tardar o fallar: reintenta. |
-| El agente no llama a las tools o responde con errores de formato | El modelo gratuito puede fallar en tool calling. En la celda 1.1 cambia `MODEL_ID`, `base_url` y la clave por `gpt-4.1-mini` y `OPENAI_API_KEY`, y anótalo en la celda 6. |
+| El agente no llama a las tools o responde con errores de formato | El modelo gratuito puede fallar en tool calling y ser lento. En la celda 1.1 usa `anthropic/claude-haiku-5.5` (el predeterminado del notebook) o cambia `MODEL_ID`, `base_url` y la clave por `gpt-4.1-mini` y `OPENAI_API_KEY`, y anótalo en la celda 6. |
 | `El agente alcanzó el tope de N pasos` | El agente ve en cada turno cuántas rondas lleva y cuántas le quedan, y al agotarse se le quitan las tools; si aun así llega al tope, sube `MAX_RONDAS` en la celda 2.1 o simplifica las tools permitidas. |
 | `No se identificaron síntomas en el texto` | La viñeta no describe síntomas; el flujo se detiene a propósito. |
+| `No se pudo conectar con Ollama` o `Ollama no tiene el modelo` | Arranca `ollama serve` o abre la app, y ejecuta `ollama pull qwen2.5vl:3b`. |
+| El equipo se pone lento durante el OCR | Cierra otras aplicaciones; el modelo necesita unos 4 GB libres. Si falla de nuevo, reduce `LADO_MAXIMO` en `poc_psico/ocr.py`. |
+| La entrada es una foto, pero no hay un componente OCR | `Componentes` no recibió `ocr=`: en el notebook se arma en la celda 3.1. |
+| `OpenRouter respondió 400 ... rate limited` en el OCR | El motor de parseo de Mistral está saturado; el nodo ya reintentó 3 veces. Espera un minuto y repite. |
 | Tras editar un `.py` no cambia nada | Reinicia la sesión o el kernel. |
