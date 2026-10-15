@@ -79,6 +79,16 @@ def test_render_marca_categorias_vacias_y_datos_no_indicados():
     assert "No indicada" in md and "No identificado" in md
 
 
+def test_sintomas_inician_con_mayuscula():
+    sintomas = {**SINTOMAS, "emocionales": ["ansiedad en situaciones con mucha gente", "tristeza"]}
+    rep = reporte_base()
+    finales, _ = validar_hipotesis(rep, CANDIDATOS)
+    md = render_markdown(sintomas, finales, rep, [], date(2026, 10, 15))
+    assert "- Ansiedad en situaciones con mucha gente" in md
+    assert "- Dificultad para concentrarse" in md
+    assert "- ansiedad" not in md
+
+
 def test_pruebas_solo_nombre_y_motivo_con_aviso():
     rep = reporte_base()
     finales, _ = validar_hipotesis(rep, CANDIDATOS)

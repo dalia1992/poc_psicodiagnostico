@@ -31,6 +31,11 @@ def _lista(items, vacio="Ninguno identificado") -> str:
     return "\n".join(f"- {i}" for i in items) if items else f"- {vacio}"
 
 
+def _mayuscula_inicial(texto: str) -> str:
+    texto = texto.strip()
+    return texto[:1].upper() + texto[1:]
+
+
 def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, alternativas: list, fecha: date) -> str:
     partes = [
         "# Reporte de apoyo al psicodiagnóstico",
@@ -48,7 +53,7 @@ def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, al
         ("Conductuales", "conductuales"),
         ("Afectación social", "afectacion_social"),
     ):
-        partes += [f"### {etiqueta}", _lista(sintomas.get(clave))]
+        partes += [f"### {etiqueta}", _lista([_mayuscula_inicial(s) for s in sintomas.get(clave) or []])]
 
     partes.append("## 3. Hipótesis diagnósticas (de la más a la menos plausible)")
     for i, h in enumerate(hipotesis, 1):
