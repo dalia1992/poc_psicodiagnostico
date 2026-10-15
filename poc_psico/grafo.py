@@ -11,6 +11,7 @@ from typing_extensions import TypedDict
 from .errores import FlujoDetenido
 from .esquemas import ReporteClinico, SintomasPaciente
 from .guardrail import pasa_guardrail
+from .ocr import es_imagen
 from .pii import MapaPII, anonimizar
 from .reporte import render_markdown, validar_hipotesis
 from .traza import contar_errores, contar_rondas, ensamblar_candidatos, extraer_traza, resumen_traza, texto_final
@@ -40,6 +41,7 @@ class Componentes:
     redactar: Callable[[dict, list, list, str], ReporteClinico]
     umbral: float = 0.5
     fecha: Callable[[], date] = date.today
+    ocr: Callable[[str], str] | None = None  # ruta de foto -> texto; solo si la entrada es una foto
 
 
 @contextmanager
@@ -113,11 +115,13 @@ def construir_workflow(c: Componentes, metricas: dict):
 
 
 async def ejecutar(entrada: str, c: Componentes) -> dict:
-    """Anonimiza (fuera del grafo, para que el original no quede en las trazas), corre el grafo y reinserta los nombres."""
+    """Si la entrada es una foto la lee con OCR; anonimiza (fuera del grafo, para que el original no quede en las trazas),
+    corre el grafo y reinserta los nombres. `texto_ocr` devuelve el texto leído para que se revise."""
+    entrada = str(entrada)
     resultado = {
         "estado_final": "error", "razon": "", "texto_anon": "", "prob_clinico": None, "sintomas": None,
         "candidatos": [], "alternativas": [], "traza_tools": [], "rondas_agente": 0, "reporte_md": "",
-        "advertencias": [], "latencias": {},
+        "advertencias": [], "latencias": {}, "texto_ocr": None,
     }
     if not entrada or not entrada.strip():
         resultado["razon"] = "La entrada está vacía"
@@ -125,8 +129,14 @@ async def ejecutar(entrada: str, c: Componentes) -> dict:
 
     mapa, metricas = MapaPII(), {}
     try:
+        texto = entrada
+        if es_imagen(entrada):
+            if c.ocr is None:
+                raise FlujoDetenido("La entrada es una foto, pero no hay un componente OCR configurado")
+            with _cronometro(metricas, "ocr"):
+                texto = resultado["texto_ocr"] = c.ocr(entrada.strip())
         with _cronometro(metricas, "anonimizar"):
-            resultado["texto_anon"] = anonimizar(entrada, c.ner, mapa)
+            resultado["texto_anon"] = anonimizar(texto, c.ner, mapa)
         final = await construir_workflow(c, metricas).ainvoke({"texto_anon": resultado["texto_anon"]})
     except FlujoDetenido as e:
         resultado["razon"] = str(e)

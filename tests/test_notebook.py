@@ -40,3 +40,21 @@ def test_el_notebook_usa_max_rondas_y_no_el_limite_de_pasos():
     assert "construir_agente(llm, tools, SYSTEM_PROMPT_AGENTE, MAX_RONDAS)" in codigo
     assert "correr_agente(agente, sintomas, MAX_RONDAS)" in codigo
     assert "RECURSION_LIMIT" not in codigo
+
+
+def test_el_motor_de_ocr_se_elige_en_una_celda_edita_aqui_y_mistral_es_el_predeterminado():
+    codigo = "\n".join(c.source for c in construir().cells if c.cell_type == "code")
+    assert 'OCR_MOTOR = "mistral"' in codigo
+    assert "from poc_psico.ocr import leer_imagen, leer_imagen_mistral" in codigo
+    assert 'if OCR_MOTOR == "local"' in codigo
+    assert 'leer_imagen_mistral(ruta, os.environ["OPENROUTER_API_KEY"])' in codigo
+    assert "ocr=_ocr" in codigo
+    assert "RUTA_FOTO" in codigo
+
+
+def test_el_display_del_registro_muestra_una_columna_con_las_rondas_del_agente_y_el_csv_no_cambia():
+    codigo = "\n".join(c.source for c in construir().cells if c.cell_type == "code")
+    assert "def rondas_de(observado" in codigo
+    assert 'registro.assign(rondas=registro["observado"].map(rondas_de))' in codigo
+    assert '["id", "tipo", "veredicto_auto", "rondas", "latencia_s", "observado", "error"]' in codigo
+    assert '"latencia_s": latencia, "error": error,' in codigo  # la fila del CSV sigue sin columna nueva

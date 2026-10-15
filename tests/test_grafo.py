@@ -180,3 +180,53 @@ async def test_cuando_no_hay_hipotesis_la_razon_dice_que_hizo_el_agente():
     r = await ejecutar(ENTRADA, c)
     assert "1 ronda" in r["razon"] and "icd11_buscar_codigo_mms" in r["razon"]
     assert "No hay categoría para ese término" in r["razon"]  # último mensaje del agente
+
+
+FOTO = "/tmp/vineta.jpg"
+
+
+async def test_una_foto_se_lee_con_ocr_y_el_texto_leido_se_anonimiza_antes_de_cualquier_servicio_externo():
+    espia = Espia()
+    c, _ = construir(espia, ocr=lambda ruta: ENTRADA)
+    r = await ejecutar(FOTO, c)
+    assert r["estado_final"] == "ok", r["razon"]
+    assert r["texto_ocr"] == ENTRADA
+    assert "[PER_1]" in r["texto_anon"]
+    externo = " ".join(espia.recibido)
+    assert "Laura" not in externo and "Mendoza" not in externo and "Guadalajara" not in externo
+    assert "Laura Mendoza" in r["reporte_md"]
+    assert "ocr" in r["latencias"]
+
+
+async def test_con_texto_no_se_usa_el_ocr_y_texto_ocr_queda_vacio():
+    def ocr(ruta):
+        raise AssertionError("no debe llamarse con texto")
+
+    c, _ = construir(ocr=ocr)
+    r = await ejecutar(ENTRADA, c)
+    assert r["estado_final"] == "ok"
+    assert r["texto_ocr"] is None
+
+
+async def test_si_el_ocr_falla_el_flujo_se_detiene_sin_llamar_a_nada_mas():
+    def ocr(ruta):
+        raise FlujoDetenido("Ollama apagado")
+
+    c, espia = construir(ocr=ocr)
+    r = await ejecutar(FOTO, c)
+    assert r["estado_final"] == "error" and "Ollama apagado" in r["razon"]
+    assert espia.llamadas == {"guardrail": 0, "extraer": 0, "agente": 0, "redactar": 0}
+
+
+async def test_una_foto_sin_ocr_configurado_se_explica_en_vez_de_tratarse_como_texto():
+    c, espia = construir()
+    r = await ejecutar(FOTO, c)
+    assert r["estado_final"] == "error" and "OCR" in r["razon"]
+    assert espia.llamadas["guardrail"] == 0
+
+
+async def test_ocr_que_devuelve_texto_no_clinico_termina_fuera_de_alcance():
+    c, _ = construir(ocr=lambda ruta: "Receta de pan amasado", guardrail=lambda t: 0.1)
+    r = await ejecutar(FOTO, c)
+    assert r["estado_final"] == "fuera_de_alcance"
+    assert r["texto_ocr"] == "Receta de pan amasado"

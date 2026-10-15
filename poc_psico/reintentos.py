@@ -56,8 +56,11 @@ def es_error_de_formato(error: Exception) -> bool:
     return isinstance(error, (ValidationError, OutputParserException))
 
 
-def con_reintentos_formato(funcion, *args, **kwargs):
-    """Reintenta sin espera si el modelo rompió el contrato (p. ej. una lista entregada como texto). 503 se maneja aparte."""
+def con_reintentos_formato(funcion, *args, corregir=None, **kwargs):
+    """Reintenta sin espera si el modelo rompió el contrato (p. ej. una lista entregada como texto). 503 se maneja aparte.
+
+    Repetir la misma petición no sirve: a temperatura 0 y con la caché de LLM activa (celda 1.1) devuelve la misma respuesta
+    mala sin llamar al modelo. `corregir(args, error) -> args` permite cambiar la petición en cada reintento."""
     for intento in range(REINTENTOS_FORMATO + 1):
         try:
             return funcion(*args, **kwargs)
@@ -65,3 +68,5 @@ def con_reintentos_formato(funcion, *args, **kwargs):
             if not es_error_de_formato(error) or intento == REINTENTOS_FORMATO:
                 raise
             logger.warning("Salida con formato inválido: reintento %d de %d", intento + 1, REINTENTOS_FORMATO)
+            if corregir:
+                args = corregir(args, error)
