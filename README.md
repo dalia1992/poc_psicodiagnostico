@@ -1,9 +1,9 @@
 # PoC · Asistente de apoyo al psicodiagnóstico (LC-B + LC-C)
 
-Convierte una viñeta clínica en texto libre en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS) y datos faltantes.
+Convierte una viñeta clínica (texto libre o foto de una nota manuscrita) en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS), datos faltantes, pruebas sugeridas y guías clínicas.
 
 ```
-(foto → OCR local) → texto → anonimizar (NER local) → guardrail (JEV) → extraer síntomas → agente CIE-11 (MCP en Azure) → reporte
+(foto → OCR) → texto → anonimizar (NER local) → guardrail (JEV) → extraer síntomas → agente CIE-11 (MCP en Azure) → guías clínicas → reporte
 ```
 
 Los nombres, lugares y organizaciones se sustituyen por `[PER_1]`, `[LOC_1]`, `[ORG_1]` antes de llamar a cualquier servicio externo y se reinsertan al final, solo en el reporte.
@@ -84,7 +84,7 @@ El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fu
 - **Seguridad:** el decisor solo elige la fuente (mapa fijo: `apa`, `oms`, `ambas`, `ninguna`); las consultas las arma el código y `_dominio_permitido` descarta cualquier liga fuera del dominio de esa búsqueda.
 - **IMSS:** sus guías usan códigos CIE-10 (F32, F33), no CIE-11, y la de depresión (clave IMSS-161-09) es de 2009: confirma su vigencia en el catálogo. Algunos títulos de los PDF salen genéricos (por ejemplo «Guía de práctica clínica»).
 - **Pruebas respaldadas:** el redactor recibe de cada guía su id, título y un extracto (hasta 2 500 caracteres) y, por cada prueba complementaria, indica `fuente_id` y copia una `cita_textual`. El código solo da por respaldada la prueba si esa cita aparece literalmente en el extracto de esa guía (sin distinguir mayúsculas ni acentos); entonces el reporte añade la liga de la guía, tomada de la guía y no del modelo. Si no, la prueba se muestra *sin referencia en las guías consultadas* y se añade una advertencia. Los extractos son texto web que entra a un LLM: se le indica tratarlos como datos y la salida es estructurada, pero no es una garantía total contra instrucciones inyectadas.
-- **Costo y tolerancia a fallas:** añade de 1 a 3 búsquedas por caso (unos US$0.008 cada una) más una llamada de decisión. Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS_APA = False` en la celda 2.1.
+- **Costo y tolerancia a fallas:** añade de 1 a 3 búsquedas por caso (unos US$0.008 cada una) más una llamada de decisión. Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS = False` en la celda 2.1.
 
 ## Foto de una nota manuscrita (OCR)
 
@@ -111,7 +111,7 @@ No necesitan claves ni red; usan componentes falsos.
 ~/.venvs/poc_psico/bin/python -m pytest -q
 ```
 
-Dos pruebas se omiten hasta que existan los fixtures reales de `scripts/spike_guardrail.py` y `scripts/spike_mcp.py` (necesitan `OPENROUTER_API_KEY` y acceso al MCP).
+Los fixtures reales de la Decisions API y del MCP están en `tests/fixtures/`; para regenerarlos corre `scripts/spike_guardrail.py` y `scripts/spike_mcp.py` (necesitan `OPENROUTER_API_KEY` y acceso al MCP).
 
 ## Qué editar
 
@@ -125,8 +125,8 @@ Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL
 | `401` o `User not found` | La clave está mal copiada, o el secreto no tiene *Acceso del notebook* activado (Colab). |
 | El notebook te pide la clave por teclado | No encontró `OPENROUTER_API_KEY`: revisa que `.env` esté en la carpeta del proyecto (o que `POC_ENV_FILE` apunte a él) y que la línea no tenga espacios ni comillas de más. |
 | `429` o `rate limit` (también en el guardrail: `La Decisions API respondió 429`) | Superaste 20 llamadas por minuto o 50 por día; el límite diario cuenta modelos gratuitos y Decisions API juntos. Espera al día siguiente, o carga 10 créditos en OpenRouter para subir el límite a 1000 por día. El flujo falla cerrado: nunca deja pasar un texto sin guardrail. |
-| `503` o `system overload` | El servicio está sobrecargado. El guardrail, el extractor, el redactor y las llamadas del agente al modelo reintentan solos 3 veces, esperando 1, 2 y 4 segundos (`poc_psico/reintentos.py`); verás un aviso por cada reintento. Si persiste, el flujo se detiene con el error. |
-| `GuardrailError: Formato inesperado de la Decisions API` | La respuesta de JEV (`typesafe/jev-…`) no tiene la forma esperada: revisa `RUTA_PROB` en `poc_psico/guardrail.py` con `scripts/spike_guardrail.py`. Si no se resuelve, usa el plan B (`guardrail_llm`) en la celda 3.1. |
+| `503` o `system overload` | El servicio está sobrecargado. El guardrail, el extractor, el redactor, las llamadas del agente al modelo, la búsqueda de guías y Mistral OCR reintentan solos 3 veces, esperando 1, 2 y 4 segundos (`poc_psico/reintentos.py`); verás un aviso por cada reintento. Si persiste, el flujo se detiene con el error. |
+| `GuardrailError: Formato inesperado de la Decisions API` | La respuesta de JEV (`typesafe/jev-…`) no tiene la forma esperada: revisa `RUTA_PROB` en `poc_psico/guardrail.py` con `scripts/spike_guardrail.py`. Si no se resuelve, usa el plan B: en la celda 3.1 reemplaza `_guardrail` por `guardrail_llm(texto, llm.with_structured_output(ClasificacionClinica))` (ambos en `poc_psico/guardrail.py`). |
 | `No se pudo conectar al MCP CIE-11` | Comprueba `AGENT_MCP_URL`. Si el servicio de Azure estaba inactivo, la primera conexión puede tardar o fallar: reintenta. |
 | El agente no llama a las tools o responde con errores de formato | El modelo gratuito puede fallar en tool calling y ser lento. En la celda 1.1 usa `anthropic/claude-haiku-5.5` (el predeterminado del notebook) o cambia `MODEL_ID`, `base_url` y la clave por `gpt-4.1-mini` y `OPENAI_API_KEY`, y anótalo en la celda 6. |
 | `El agente alcanzó el tope de N pasos` | El agente ve en cada turno cuántas rondas lleva y cuántas le quedan, y al agotarse se le quitan las tools; si aun así llega al tope, sube `MAX_RONDAS` en la celda 2.1 o simplifica las tools permitidas. |

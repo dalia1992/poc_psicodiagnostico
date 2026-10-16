@@ -236,7 +236,7 @@ async def test_ocr_que_devuelve_texto_no_clinico_termina_fuera_de_alcance():
 GUIAS = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/depression-guideline", "cita": "Resumen.", "tipo": "apa"}]
 
 
-async def test_las_guias_apa_llegan_al_reporte_y_al_resultado():
+async def test_las_guias_llegan_al_reporte_y_al_resultado():
     c, espia = construir(guias=lambda candidatos, sintomas: GUIAS)
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "ok" and r["guias"] == GUIAS
