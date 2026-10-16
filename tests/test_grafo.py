@@ -16,7 +16,7 @@ class Espia:
 
     def __init__(self):
         self.recibido = []
-        self.llamadas = {"guardrail": 0, "extraer": 0, "agente": 0, "redactar": 0}
+        self.llamadas = {"guardrail": 0, "extraer": 0, "busqueda_cie11": 0, "redactar": 0}
 
     def registrar(self, nombre, *args):
         self.llamadas[nombre] += 1
@@ -45,7 +45,7 @@ def construir(espia=None, **sobre):
                 "datos_faltantes": ["Duración de los síntomas"]}
 
     async def agente(sintomas):
-        espia.registrar("agente", sintomas)
+        espia.registrar("busqueda_cie11", sintomas)
         return mensajes_exitosos()
 
     def redactar(sintomas, candidatos, alternativas, notas):
@@ -53,7 +53,7 @@ def construir(espia=None, **sobre):
         return ReporteClinico(hipotesis=[HipotesisRedactada(codigo="6A70", justificacion="Tristeza persistente.")],
                               datos_faltantes=["Duración"])
 
-    valores = dict(ner=ner, guardrail=guardrail, extraer=extraer, agente=agente, redactar=redactar, umbral=0.5,
+    valores = dict(ner=ner, guardrail=guardrail, extraer=extraer, busqueda_cie11=agente, redactar=redactar, umbral=0.5,
                    fecha=lambda: date(2026, 10, 15))
     valores.update(sobre)
     return Componentes(**valores), espia
@@ -63,10 +63,10 @@ async def test_flujo_completo_ok_con_codigo_liga_y_latencias():
     c, _ = construir()
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "ok"
-    assert r["rondas_agente"] == 2
+    assert r["rondas_busqueda_cie11"] == 2
     assert [x["codigo"] for x in r["candidatos"]] == ["6A70"]
     assert "`6A70`" in r["reporte_md"] and "Abrir en el navegador OMS" in r["reporte_md"]
-    assert {"anonimizar", "guardrail", "extraer", "agente", "reporte"} <= set(r["latencias"])
+    assert {"anonimizar", "guardrail", "extraer", "busqueda_cie11", "reporte"} <= set(r["latencias"])
 
 
 async def test_los_nombres_no_llegan_a_ningun_componente_externo_ni_al_resultado():
@@ -105,8 +105,8 @@ async def test_guardrail_bajo_el_umbral_termina_fuera_de_alcance_sin_llamar_a_no
     c, espia = construir(guardrail=lambda t: 0.1)
     r = await ejecutar("Receta de pan amasado", c)
     assert r["estado_final"] == "fuera_de_alcance"
-    assert r["rondas_agente"] == 0 and r["reporte_md"] == ""
-    assert espia.llamadas["extraer"] == espia.llamadas["agente"] == espia.llamadas["redactar"] == 0
+    assert r["rondas_busqueda_cie11"] == 0 and r["reporte_md"] == ""
+    assert espia.llamadas["extraer"] == espia.llamadas["busqueda_cie11"] == espia.llamadas["redactar"] == 0
 
 
 async def test_falla_del_guardrail_detiene_el_flujo_y_no_deja_pasar():
@@ -124,14 +124,14 @@ async def test_extractor_sin_sintomas_detiene_el_flujo():
     c, espia = construir(extraer=sin_sintomas)
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "error" and "síntomas" in r["razon"]
-    assert espia.llamadas["agente"] == 0
+    assert espia.llamadas["busqueda_cie11"] == 0
 
 
 async def test_falla_del_agente_detiene_el_flujo():
     async def agente(sintomas):
         raise FlujoDetenido("El agente alcanzó el tope de 12 pasos")
 
-    c, espia = construir(agente=agente)
+    c, espia = construir(busqueda_cie11=agente)
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "error" and "tope" in r["razon"]
     assert espia.llamadas["redactar"] == 0
@@ -141,7 +141,7 @@ async def test_ninguna_hipotesis_con_codigo_detiene_el_flujo():
     async def agente(sintomas):
         return mensajes_sin_resultados()
 
-    c, espia = construir(agente=agente)
+    c, espia = construir(busqueda_cie11=agente)
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "error" and "ninguna hipótesis" in r["razon"].lower()
     assert espia.llamadas["redactar"] == 0
@@ -151,7 +151,7 @@ async def test_si_las_tools_fallan_la_razon_lo_dice():
     async def agente(sintomas):
         return mensajes_con_error()
 
-    c, _ = construir(agente=agente)
+    c, _ = construir(busqueda_cie11=agente)
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "error" and "error" in r["razon"].lower()
 
@@ -176,7 +176,7 @@ async def test_cuando_no_hay_hipotesis_la_razon_dice_que_hizo_el_agente():
     async def agente(sintomas):
         return mensajes_sin_resultados()
 
-    c, _ = construir(agente=agente)
+    c, _ = construir(busqueda_cie11=agente)
     r = await ejecutar(ENTRADA, c)
     assert "1 ronda" in r["razon"] and "icd11_buscar_codigo_mms" in r["razon"]
     assert "No hay categoría para ese término" in r["razon"]  # último mensaje del agente
@@ -215,7 +215,7 @@ async def test_si_el_ocr_falla_el_flujo_se_detiene_sin_llamar_a_nada_mas():
     c, espia = construir(ocr=ocr)
     r = await ejecutar(FOTO, c)
     assert r["estado_final"] == "error" and "Ollama apagado" in r["razon"]
-    assert espia.llamadas == {"guardrail": 0, "extraer": 0, "agente": 0, "redactar": 0}
+    assert espia.llamadas == {"guardrail": 0, "extraer": 0, "busqueda_cie11": 0, "redactar": 0}
 
 
 async def test_una_foto_sin_ocr_configurado_se_explica_en_vez_de_tratarse_como_texto():
@@ -232,7 +232,7 @@ async def test_ocr_que_devuelve_texto_no_clinico_termina_fuera_de_alcance():
     assert r["texto_ocr"] == "Receta de pan amasado"
 
 
-GUIAS = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/depression-guideline", "cita": "Resumen."}]
+GUIAS = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/depression-guideline", "cita": "Resumen.", "tipo": "evaluacion"}]
 
 
 async def test_las_guias_apa_llegan_al_reporte_y_al_resultado():

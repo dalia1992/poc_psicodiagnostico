@@ -74,13 +74,14 @@ Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que e
 
 Privacidad: en local el NER corre en tu equipo y el texto original no sale de él.
 
-## Guías clínicas de la APA
+## Guías clínicas (APA, IMSS y OMS)
 
-Después del agente CIE-11, `poc_psico/guias.py` hace una búsqueda web con el plugin `web` de OpenRouter, restringida a `apa.org` con `include_domains` (el filtro lo aplica OpenRouter, no el prompt). El reporte añade la subsección *Guías clínicas de la APA* con título, liga y una cita corta de cada resultado.
+Después de la búsqueda CIE-11, `poc_psico/guias.py` hace cuatro búsquedas web con el plugin `web` de OpenRouter, cada una restringida a un dominio con `include_domains` (el filtro lo aplica OpenRouter, no el prompt): APA (`apa.org`) para evaluación y diagnóstico diferencial, con énfasis en qué hacer si falta información; APA para intervención; guías de práctica clínica del IMSS (`imss.gob.mx`); y guías de la OMS (`who.int`, incluye mhGAP). El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fuente, con título, liga y una cita corta. Las búsquedas de APA y OMS prefieren páginas en español y usan las de inglés si no hay.
 
-- **Privacidad:** a la búsqueda solo viajan los títulos de las entidades CIE-11 candidatas, nunca datos del paciente.
-- **Seguridad:** el texto de la web no pasa por ningún LLM; solo se imprimen título, liga y cita, y se descarta cualquier liga fuera de `apa.org`.
-- **Costo y tolerancia a fallas:** añade una búsqueda por caso (hasta 3 resultados). Si falla, el reporte sale sin guías y con una advertencia. Para desactivarla pon `BUSCAR_GUIAS_APA = False` en la celda 2.1.
+- **Privacidad:** a las búsquedas solo viajan los títulos de las entidades CIE-11 candidatas, nunca datos del paciente ni códigos.
+- **Seguridad:** el texto de la web no pasa por ningún LLM; solo se imprimen título, liga y cita, y `_dominio_permitido` descarta cualquier liga fuera del dominio de esa búsqueda.
+- **IMSS:** sus guías usan códigos CIE-10 (F32, F33), no CIE-11, y la de depresión (clave IMSS-161-09) es de 2009: confirma su vigencia en el catálogo. Algunos títulos de los PDF salen genéricos (por ejemplo «Guía de práctica clínica»).
+- **Costo y tolerancia a fallas:** añade cuatro búsquedas por caso (hasta 3 resultados cada una, unos US$0.03 y 35 s en total). Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS_APA = False` en la celda 2.1.
 
 ## Foto de una nota manuscrita (OCR)
 

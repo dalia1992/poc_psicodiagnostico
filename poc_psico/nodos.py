@@ -52,14 +52,14 @@ def crear_extractor(llm, esperar=time.sleep):
 def crear_redactor(llm, esperar=time.sleep):
     estructurado = llm.with_structured_output(ReporteClinico, method="function_calling")
 
-    def redactar(sintomas: dict, candidatos: list, alternativas: list, notas_agente: str) -> ReporteClinico:
+    def redactar(sintomas: dict, candidatos: list, alternativas: list, notas_busqueda_cie11: str) -> ReporteClinico:
         contexto = {
             "sintomas": sintomas,
             "candidatos": [
                 {k: c[k] for k in ("codigo", "titulo", "definicion", "inclusiones", "exclusiones")} for c in candidatos
             ],
             "alternativas_descartadas": [{"codigo": a["codigo"], "titulo": a["titulo"]} for a in alternativas],
-            "notas_del_agente": notas_agente,
+            "notas_del_agente": notas_busqueda_cie11,
         }
         mensajes = [("system", PROMPT_REDACTOR), ("human", json.dumps(contexto, ensure_ascii=False))]
         return con_reintentos_formato(

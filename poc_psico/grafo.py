@@ -1,4 +1,4 @@
-"""Workflow guardrail -> extraer -> agente CIE-11 -> reporte, y ejecutar() con anonimización previa."""
+"""Workflow guardrail -> extraer -> búsqueda CIE-11 -> guías clínicas -> reporte, y ejecutar() con anonimización previa."""
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -24,9 +24,9 @@ class Estado(TypedDict, total=False):
     sintomas: dict
     candidatos: list
     alternativas: list
-    notas_agente: str
+    notas_busqueda_cie11: str
     traza_tools: list
-    rondas_agente: int
+    rondas_busqueda_cie11: int
     errores_tools: int
     guias: list
     reporte_md: str
@@ -38,12 +38,12 @@ class Componentes:
     ner: Callable[[str], list]
     guardrail: Callable[[str], float]
     extraer: Callable[[str], dict]
-    agente: Callable[[dict], Awaitable[list]]
+    busqueda_cie11: Callable[[dict], Awaitable[list]]
     redactar: Callable[[dict, list, list, str], ReporteClinico]
     umbral: float = 0.5
     fecha: Callable[[], date] = date.today
     ocr: Callable[[str], str] | None = None  # ruta de foto -> texto; solo si la entrada es una foto
-    guias: Callable[[list], list] | None = None  # candidatos -> guías APA; opcional, si falla el reporte sale sin ellas
+    guias: Callable[[list], list] | None = None  # candidatos -> guías clínicas; opcional, si falla el reporte sale sin ellas
 
 
 @contextmanager
@@ -68,9 +68,9 @@ def construir_workflow(c: Componentes, metricas: dict):
             raise FlujoDetenido("No se identificaron síntomas en el texto")
         return {"sintomas": sintomas}
 
-    async def nodo_agente(estado: Estado) -> dict:
-        with _cronometro(metricas, "agente"):
-            mensajes = await c.agente(estado["sintomas"])
+    async def nodo_busqueda_cie11(estado: Estado) -> dict:
+        with _cronometro(metricas, "busqueda_cie11"):
+            mensajes = await c.busqueda_cie11(estado["sintomas"])
         traza = extraer_traza(mensajes)
         candidatos, alternativas = ensamblar_candidatos(traza)
         errores = contar_errores(mensajes)
@@ -84,9 +84,9 @@ def construir_workflow(c: Componentes, metricas: dict):
         return {
             "candidatos": candidatos,
             "alternativas": alternativas,
-            "notas_agente": texto_final(mensajes),
+            "notas_busqueda_cie11": texto_final(mensajes),
             "traza_tools": traza,
-            "rondas_agente": contar_rondas(mensajes),
+            "rondas_busqueda_cie11": contar_rondas(mensajes),
             "errores_tools": errores,
         }
 
@@ -97,12 +97,12 @@ def construir_workflow(c: Componentes, metricas: dict):
             with _cronometro(metricas, "guias"):
                 return {"guias": c.guias(estado["candidatos"])}
         except FlujoDetenido as e:
-            return {"guias": [], "advertencias": [f"No se pudieron consultar las guías de la APA: {e}"]}
+            return {"guias": [], "advertencias": [f"No se pudieron consultar las guías clínicas: {e}"]}
 
     def nodo_reporte(estado: Estado) -> dict:
         with _cronometro(metricas, "reporte"):
             reporte = c.redactar(
-                estado["sintomas"], estado["candidatos"], estado["alternativas"], estado["notas_agente"]
+                estado["sintomas"], estado["candidatos"], estado["alternativas"], estado["notas_busqueda_cie11"]
             )
         hipotesis, advertencias = validar_hipotesis(reporte, estado["candidatos"])
         if not hipotesis:
@@ -115,15 +115,15 @@ def construir_workflow(c: Componentes, metricas: dict):
     grafo = StateGraph(Estado)
     grafo.add_node("guardrail", nodo_guardrail)
     grafo.add_node("extraer", nodo_extraer)
-    grafo.add_node("agente", nodo_agente)
+    grafo.add_node("busqueda_cie11", nodo_busqueda_cie11)
     grafo.add_node("guias", nodo_guias)
     grafo.add_node("reporte", nodo_reporte)
     grafo.add_edge(START, "guardrail")
     grafo.add_conditional_edges(
         "guardrail", lambda e: "extraer" if e["continuar"] else END, {"extraer": "extraer", END: END}
     )
-    grafo.add_edge("extraer", "agente")
-    grafo.add_edge("agente", "guias")
+    grafo.add_edge("extraer", "busqueda_cie11")
+    grafo.add_edge("busqueda_cie11", "guias")
     grafo.add_edge("guias", "reporte")
     grafo.add_edge("reporte", END)
     return grafo.compile()
@@ -135,7 +135,7 @@ async def ejecutar(entrada: str, c: Componentes) -> dict:
     entrada = str(entrada)
     resultado = {
         "estado_final": "error", "razon": "", "texto_anon": "", "prob_clinico": None, "sintomas": None,
-        "candidatos": [], "alternativas": [], "traza_tools": [], "rondas_agente": 0, "reporte_md": "",
+        "candidatos": [], "alternativas": [], "traza_tools": [], "rondas_busqueda_cie11": 0, "reporte_md": "",
         "advertencias": [], "latencias": {}, "texto_ocr": None, "guias": [],
     }
     if not entrada or not entrada.strip():
@@ -178,7 +178,7 @@ async def ejecutar(entrada: str, c: Componentes) -> dict:
         alternativas=final["alternativas"],
         guias=final.get("guias", []),
         traza_tools=final["traza_tools"],
-        rondas_agente=final["rondas_agente"],
+        rondas_busqueda_cie11=final["rondas_busqueda_cie11"],
         reporte_md=reporte_md,
         advertencias=final.get("advertencias", []) + [f"Placeholder sin valor en el mapa: {p}" for p in desconocidos],
     )

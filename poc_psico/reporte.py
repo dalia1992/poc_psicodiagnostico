@@ -27,6 +27,14 @@ def validar_hipotesis(reporte: ReporteClinico, candidatos: list):
     return finales, advertencias
 
 
+ETIQUETAS_GUIAS = {
+    "evaluacion": "APA · Evaluación y diagnóstico",
+    "intervencion": "APA · Intervención",
+    "imss": "IMSS (México) · Guías de práctica clínica",
+    "oms": "OMS",
+}
+
+
 def _mayuscula_inicial(texto: str) -> str:
     texto = texto.strip()
     return texto[:1].upper() + texto[1:]
@@ -83,10 +91,12 @@ def render_markdown(
     ]
     partes += [f"- **{_mayuscula_inicial(p.nombre)}**: {_mayuscula_inicial(p.motivo)}" for p in reporte.pruebas] or ["- Ninguna sugerida"]
     if guias:
-        partes.append("### Guías clínicas de la APA")
-        partes += [
-            f"- [{g['titulo']}]({g['url']})" + (f" — «{g['cita']}»" if g.get("cita") else "") for g in guias
-        ]
+        partes += ["### Guías clínicas consultadas", "> Referencias para consulta del profesional; el sistema no recomienda tratamientos."]
+        for tipo, etiqueta in ETIQUETAS_GUIAS.items():
+            grupo = [g for g in guias if g.get("tipo", "evaluacion") == tipo]
+            if grupo:
+                partes.append(f"**{etiqueta}**")
+                partes.append("\n".join(f"- [{g['titulo']}]({g['url']})" + (f" — «{g['cita']}»" if g.get("cita") else "") for g in grupo))
     partes += [
         "## 7. Aviso",
         "Este reporte contiene hipótesis de apoyo generadas con ayuda de IA a partir de la CIE-11. No es un diagnóstico: la decisión clínica es del profesional.",

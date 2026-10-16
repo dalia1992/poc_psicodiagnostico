@@ -121,12 +121,30 @@ def test_todos_los_items_del_reporte_inician_en_mayuscula():
         assert esperado in md
 
 
-def test_el_reporte_incluye_las_guias_apa_con_liga_y_cita():
-    guias = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/g", "cita": "Recomienda terapia."}]
+def test_el_reporte_agrupa_las_guias_por_fuente_y_tipo():
+    guias = [
+        {"titulo": "Guía de evaluación", "url": "https://www.apa.org/e", "cita": "Qué evaluar.", "tipo": "evaluacion"},
+        {"titulo": "Guía de tratamiento", "url": "https://www.apa.org/t", "cita": "Recomienda terapia.", "tipo": "intervencion"},
+        {"titulo": "GPC IMSS", "url": "https://www.imss.gob.mx/g.pdf", "cita": "", "tipo": "imss"},
+        {"titulo": "mhGAP", "url": "https://www.who.int/m", "cita": "", "tipo": "oms"},
+    ]
     md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15), guias)
-    assert "### Guías clínicas de la APA" in md
-    assert "[Guía de depresión](https://www.apa.org/g)" in md and "Recomienda terapia." in md
-    assert md.index("### Guías clínicas de la APA") < md.index("## 7. Aviso")
+    assert "### Guías clínicas consultadas" in md and "el sistema no recomienda tratamientos" in md
+    orden = [md.index(x) for x in ("**APA · Evaluación y diagnóstico**", "[Guía de evaluación]", "**APA · Intervención**",
+                                   "[Guía de tratamiento]", "**IMSS (México)", "[GPC IMSS]", "**OMS**", "[mhGAP]", "## 7. Aviso")]
+    assert orden == sorted(orden) and "Recomienda terapia." in md
+
+
+def test_una_guia_sin_tipo_se_muestra_como_evaluacion():
+    md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15),
+                         [{"titulo": "Guía", "url": "https://www.apa.org/g", "cita": ""}])
+    assert md.index("**APA · Evaluación y diagnóstico**") < md.index("[Guía]")
+
+
+def test_si_solo_hay_un_tipo_no_aparecen_los_otros_encabezados():
+    md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15),
+                         [{"titulo": "Guía", "url": "https://www.who.int/g", "cita": "", "tipo": "oms"}])
+    assert "**OMS**" in md and "**APA" not in md and "**IMSS" not in md
 
 
 def test_sin_guias_no_hay_seccion_de_guias():
