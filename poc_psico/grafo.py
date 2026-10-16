@@ -11,7 +11,7 @@ from typing_extensions import TypedDict
 from .errores import FlujoDetenido
 from .esquemas import ReporteClinico, SintomasPaciente
 from .guardrail import pasa_guardrail
-from .ocr import es_imagen
+from .ocr import es_archivo
 from .pii import MapaPII, anonimizar
 from .reporte import render_markdown, validar_hipotesis, validar_pruebas
 from .traza import contar_errores, contar_rondas, ensamblar_candidatos, extraer_traza, resumen_traza, texto_final
@@ -42,7 +42,7 @@ class Componentes:
     redactar: Callable[..., ReporteClinico]  # (sintomas, candidatos, alternativas, notas, guias)
     umbral: float = 0.5
     fecha: Callable[[], date] = date.today
-    ocr: Callable[[str], str] | None = None  # ruta de foto -> texto; solo si la entrada es una foto
+    ocr: Callable[[str], str] | None = None  # ruta de foto o PDF -> texto; solo si la entrada es un archivo
     guias: Callable[[list], list] | None = None  # candidatos -> guías clínicas; opcional, si falla el reporte sale sin ellas
 
 
@@ -132,7 +132,7 @@ def construir_workflow(c: Componentes, metricas: dict):
 
 
 async def ejecutar(entrada: str, c: Componentes) -> dict:
-    """Si la entrada es una foto la lee con OCR; anonimiza (fuera del grafo, para que el original no quede en las trazas),
+    """Si la entrada es la ruta de una foto o un PDF la lee con OCR; anonimiza (fuera del grafo, para que el original no quede en las trazas),
     corre el grafo y reinserta los nombres. `texto_ocr` devuelve el texto leído para que se revise."""
     entrada = str(entrada)
     resultado = {
@@ -147,9 +147,9 @@ async def ejecutar(entrada: str, c: Componentes) -> dict:
     mapa, metricas = MapaPII(), {}
     try:
         texto = entrada
-        if es_imagen(entrada):
+        if es_archivo(entrada):
             if c.ocr is None:
-                raise FlujoDetenido("La entrada es una foto, pero no hay un componente OCR configurado")
+                raise FlujoDetenido("La entrada es un archivo (foto o PDF), pero no hay un componente OCR configurado")
             with _cronometro(metricas, "ocr"):
                 texto = resultado["texto_ocr"] = c.ocr(entrada.strip())
         with _cronometro(metricas, "anonimizar"):

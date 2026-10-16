@@ -1,9 +1,9 @@
 # PoC · Asistente de apoyo al psicodiagnóstico (LC-B + LC-C)
 
-Convierte una viñeta clínica (texto libre o foto de una nota manuscrita) en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS), datos faltantes, pruebas sugeridas y guías clínicas.
+Convierte una viñeta clínica (texto libre, foto o PDF de una nota manuscrita) en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS), datos faltantes, pruebas sugeridas y guías clínicas.
 
 ```
-(foto → OCR Mistral) → texto → anonimizar (NER local) → guardrail (JEV) → extraer síntomas → agente CIE-11 (MCP en Azure) → guías clínicas → reporte
+(foto o PDF → OCR Mistral) → texto → anonimizar (NER local) → guardrail (JEV) → extraer síntomas → agente CIE-11 (MCP en Azure) → guías clínicas → reporte
 ```
 
 Los nombres, lugares y organizaciones se sustituyen por `[PER_1]`, `[LOC_1]`, `[ORG_1]` antes de llamar a cualquier servicio externo y se reinsertan al final, solo en el reporte.
@@ -72,7 +72,7 @@ Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que e
 6. Abre `PoC_psicodiagnostico.ipynb` y *Run → Run All Cells*. La celda 0.1 solo avisa que usas el entorno local; la 0.2 toma la carpeta actual. Los puntos de control son los mismos que en Colab. El CSV queda junto al notebook.
 7. **Si editas el paquete**, reinicia el kernel (*Kernel → Restart Kernel*).
 
-Privacidad: en local el NER corre en tu equipo y el texto original no sale de él (salvo una foto: el OCR la envía a OpenRouter y Mistral).
+Privacidad: en local el NER corre en tu equipo y el texto original no sale de él (salvo una foto o un PDF: el OCR lo envía a OpenRouter y Mistral).
 
 ## Guías clínicas (IMSS, APA y OMS)
 
@@ -86,17 +86,17 @@ El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fu
 - **Pruebas respaldadas:** el redactor recibe de cada guía su id, título y un extracto (hasta 2 500 caracteres) y, por cada prueba complementaria, indica `fuente_id` y copia una `cita_textual`. El código solo da por respaldada la prueba si esa cita aparece literalmente en el extracto de esa guía (sin distinguir mayúsculas ni acentos); entonces el reporte añade la liga de la guía, tomada de la guía y no del modelo. Si no, la prueba se muestra *sin referencia en las guías consultadas* y se añade una advertencia. Los extractos son texto web que entra a un LLM: se le indica tratarlos como datos y la salida es estructurada, pero no es una garantía total contra instrucciones inyectadas.
 - **Costo y tolerancia a fallas:** añade de 1 a 3 búsquedas por caso (unos US$0.008 cada una) más una llamada de decisión. Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS = False` en la celda 2.1.
 
-## Foto de una nota manuscrita (OCR)
+## Foto o PDF de una nota manuscrita (OCR)
 
-`ejecutar()` acepta la ruta de una foto `.jpg` o `.png` en lugar del texto. La foto se lee con Mistral OCR vía OpenRouter (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. Solo necesita `OPENROUTER_API_KEY` y funciona también en Colab.
+`ejecutar()` acepta como entrada texto libre o la ruta de una foto `.jpg`/`.png` o de un `.pdf`. El archivo se lee con Mistral OCR vía OpenRouter (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. Solo necesita `OPENROUTER_API_KEY` y funciona también en Colab.
 
-> **La foto sale a OpenRouter y Mistral con los nombres sin anonimizar**, porque se lee antes de anonimizar. Usa solo fotos de datos sintéticos o anonimizados.
+> **El archivo sale a OpenRouter y Mistral con los nombres sin anonimizar**, porque se lee antes de anonimizar. Usa solo fotos o PDF de datos sintéticos o anonimizados.
 
 Tarda unos 3 a 4 s y tuvo un error de 13.9 % de caracteres en una sola foto manuscrita sintética (cifra de orientación, no una tasa de error). Leyó el nombre en mayúsculas ("LUCTA" por "Lucía"); el NER lo partió en dos entidades y el reporte quedó con "LU" como nombre. No se filtra el nombre, pero **revisa el nombre y `r["texto_ocr"]`**: un error de lectura puede cambiar el sentido clínico.
 
-La foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por foto más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
+Un PDF se envía tal cual; una foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por página (foto o PDF) más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
 
-Uso: en el notebook, celda 5.1, escribe la ruta en `RUTA_FOTO`; o desde Python: `await ejecutar("foto.jpg", componentes)`. Para medir tu caso: `scripts/spike_ocr.py foto.jpg transcripcion.txt` (con tiempo y tasa de error por carácter).
+Uso: en el notebook, celda 5.1, escribe la ruta en `RUTA_ARCHIVO`; o desde Python: `await ejecutar("foto.jpg", componentes)`. Para medir tu caso: `scripts/spike_ocr.py foto.jpg transcripcion.txt` (con tiempo y tasa de error por carácter).
 
 ## Pruebas unitarias
 
@@ -126,6 +126,6 @@ Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL
 | El agente no llama a las tools o responde con errores de formato | El modelo gratuito puede fallar en tool calling y ser lento. En la celda 1.1 usa `anthropic/claude-haiku-5.5` (el predeterminado del notebook) o cambia `MODEL_ID`, `base_url` y la clave por `gpt-4.1-mini` y `OPENAI_API_KEY`, y anótalo en la celda 6. |
 | `El agente alcanzó el tope de N pasos` | El agente ve en cada turno cuántas rondas lleva y cuántas le quedan, y al agotarse se le quitan las tools; si aun así llega al tope, sube `MAX_RONDAS` en la celda 2.1 o simplifica las tools permitidas. |
 | `No se identificaron síntomas en el texto` | La viñeta no describe síntomas; el flujo se detiene a propósito. |
-| La entrada es una foto, pero no hay un componente OCR | `Componentes` no recibió `ocr=`: en el notebook se arma en la celda 3.1. |
+| La entrada es un archivo (foto o PDF), pero no hay un componente OCR | `Componentes` no recibió `ocr=`: en el notebook se arma en la celda 3.1. |
 | `OpenRouter respondió 400 ... rate limited` en el OCR | El motor de parseo de Mistral está saturado; el nodo ya reintentó 3 veces. Espera un minuto y repite. |
 | Tras editar un `.py` no cambia nada | Reinicia la sesión o el kernel. |

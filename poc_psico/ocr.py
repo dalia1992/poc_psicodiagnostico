@@ -1,4 +1,4 @@
-"""OCR de notas manuscritas con Mistral OCR vía OpenRouter (la foto sale a esos servicios sin anonimizar)."""
+"""OCR de notas manuscritas (foto o PDF) con Mistral OCR vía OpenRouter (el archivo sale a esos servicios sin anonimizar)."""
 import base64
 import io
 import pathlib
@@ -12,7 +12,8 @@ from .errores import FlujoDetenido
 from .peticiones import post_openrouter
 from .reintentos import con_reintentos_503
 
-EXTENSIONES = {".jpg", ".jpeg", ".png"}
+EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png"}
+EXTENSIONES = EXTENSIONES_IMAGEN | {".pdf"}
 URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 # El plugin file-parser solo parsea PDF (un JPEG directo responde 200 sin texto). El modelo de chat solo acompaña
 # la petición: su respuesta se ignora y max_tokens bajo evita esperar su generación (spike 2026-10-14).
@@ -21,18 +22,18 @@ LADO_MAXIMO_MISTRAL = 2000
 
 
 class OcrError(FlujoDetenido):
-    """No se pudo leer la imagen; el flujo no continúa con texto inventado o incompleto."""
+    """No se pudo leer el archivo; el flujo no continúa con texto inventado o incompleto."""
 
 
-def es_imagen(entrada) -> bool:
-    """True si la entrada es la ruta de una foto y no una viñeta en texto."""
+def es_archivo(entrada) -> bool:
+    """True si la entrada es la ruta de una foto o un PDF y no una viñeta en texto."""
     texto = str(entrada).strip()
     return bool(texto) and "\n" not in texto and len(texto) < 500 and pathlib.Path(texto).suffix.lower() in EXTENSIONES
 
 
 def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
     if not ruta.is_file():
-        raise OcrError(f"El archivo de la foto no existe: {ruta}")
+        raise OcrError(f"El archivo no existe: {ruta}")
     try:
         with Image.open(ruta) as original:
             imagen = original.convert("RGB")  # descarta la transparencia de los PNG
@@ -64,13 +65,25 @@ def _texto_de_anotaciones(respuesta: dict) -> str:
     return re.sub(r"</?file\b[^>]*>", "", "\n".join(partes)).strip()
 
 
-def leer_imagen_mistral(
+def _pdf_base64(ruta: pathlib.Path) -> str:
+    """Un PDF se envía tal cual; una foto se convierte a un PDF de una página (el plugin no lee un JPEG directo)."""
+    if ruta.suffix.lower() != ".pdf":
+        return _codificar(_cargar(ruta, LADO_MAXIMO_MISTRAL), "PDF", resolution=150)
+    if not ruta.is_file():
+        raise OcrError(f"El archivo no existe: {ruta}")
+    contenido = ruta.read_bytes()
+    if not contenido.startswith(b"%PDF"):
+        raise OcrError(f"{ruta.name} no es un PDF válido")
+    return base64.b64encode(contenido).decode()
+
+
+def leer_archivo_mistral(
     ruta, api_key, post=requests.post, url=URL_OPENROUTER, modelo=MODELO_ACOMPANANTE, timeout=120, esperar=time.sleep
 ) -> str:
-    """Transcribe la foto con Mistral OCR vía OpenRouter: la convierte a PDF de una página y lee las anotaciones."""
+    """Transcribe la foto o el PDF con Mistral OCR vía OpenRouter y lee las anotaciones de la respuesta."""
     if not api_key:
         raise OcrError("Falta OPENROUTER_API_KEY para usar Mistral OCR")
-    pdf = _codificar(_cargar(pathlib.Path(ruta), LADO_MAXIMO_MISTRAL), "PDF", resolution=150)
+    pdf = _pdf_base64(pathlib.Path(ruta))
     payload = {
         "model": modelo,
         "max_tokens": 16,
@@ -94,5 +107,5 @@ def leer_imagen_mistral(
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise OcrError("OpenRouter devolvió un formato inesperado de respuesta") from e
     if not texto:
-        raise OcrError("No se pudo leer texto en la imagen: Mistral OCR no devolvió texto")
+        raise OcrError("No se pudo leer texto en el archivo: Mistral OCR no devolvió texto")
     return texto

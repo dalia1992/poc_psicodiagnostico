@@ -219,7 +219,7 @@ async def test_si_el_ocr_falla_el_flujo_se_detiene_sin_llamar_a_nada_mas():
     assert espia.llamadas == {"guardrail": 0, "extraer": 0, "busqueda_cie11": 0, "redactar": 0}
 
 
-async def test_una_foto_sin_ocr_configurado_se_explica_en_vez_de_tratarse_como_texto():
+async def test_un_archivo_sin_ocr_configurado_se_explica_en_vez_de_tratarse_como_texto():
     c, espia = construir()
     r = await ejecutar(FOTO, c)
     assert r["estado_final"] == "error" and "OCR" in r["razon"]
