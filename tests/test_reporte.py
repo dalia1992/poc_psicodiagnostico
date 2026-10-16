@@ -119,3 +119,15 @@ def test_todos_los_items_del_reporte_inician_en_mayuscula():
     for esperado in ["- Duración poco clara", "- Trastorno de ansiedad", "- Edad de inicio", "**Inventario de beck**: Evaluar gravedad",
                      "### 1. Trastorno x", "**Justificación:** Cumple criterios", "- Ánimo bajo", "- Duración", "- Otro x", "- Tristeza"]:
         assert esperado in md
+
+
+def test_el_reporte_incluye_las_guias_apa_con_liga_y_cita():
+    guias = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/g", "cita": "Recomienda terapia."}]
+    md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15), guias)
+    assert "### Guías clínicas de la APA" in md
+    assert "[Guía de depresión](https://www.apa.org/g)" in md and "Recomienda terapia." in md
+    assert md.index("### Guías clínicas de la APA") < md.index("## 7. Aviso")
+
+
+def test_sin_guias_no_hay_seccion_de_guias():
+    assert "Guías clínicas" not in render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15))

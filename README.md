@@ -74,6 +74,14 @@ Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que e
 
 Privacidad: en local el NER corre en tu equipo y el texto original no sale de él.
 
+## Guías clínicas de la APA
+
+Después del agente CIE-11, `poc_psico/guias.py` hace una búsqueda web con el plugin `web` de OpenRouter, restringida a `apa.org` con `include_domains` (el filtro lo aplica OpenRouter, no el prompt). El reporte añade la subsección *Guías clínicas de la APA* con título, liga y una cita corta de cada resultado.
+
+- **Privacidad:** a la búsqueda solo viajan los títulos de las entidades CIE-11 candidatas, nunca datos del paciente.
+- **Seguridad:** el texto de la web no pasa por ningún LLM; solo se imprimen título, liga y cita, y se descarta cualquier liga fuera de `apa.org`.
+- **Costo y tolerancia a fallas:** añade una búsqueda por caso (hasta 3 resultados). Si falla, el reporte sale sin guías y con una advertencia. Para desactivarla pon `BUSCAR_GUIAS_APA = False` en la celda 2.1.
+
 ## Foto de una nota manuscrita (OCR)
 
 `ejecutar()` acepta la ruta de una foto `.jpg` o `.png` en lugar del texto. La foto se lee con OCR (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. El motor se elige en `OCR_MOTOR` (celda 2.1):

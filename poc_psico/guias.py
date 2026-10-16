@@ -1,0 +1,90 @@
+"""Búsqueda de guías clínicas en apa.org con el plugin web de OpenRouter (filtro de dominio del lado del servidor).
+
+Solo viajan a la búsqueda los títulos de las entidades CIE-11 candidatas: nunca datos del paciente. El texto que
+devuelve la web no se pasa a ningún LLM; solo se conservan título, liga y una cita corta que se imprimen en el reporte.
+"""
+import re
+import time
+from urllib.parse import urlparse
+
+import requests
+
+from .errores import FlujoDetenido
+from .ocr import URL_OPENROUTER
+from .reintentos import con_reintentos_503
+
+DOMINIO = "apa.org"
+MAX_RESULTADOS = 3
+MAX_CANDIDATOS = 3
+MAX_CITA = 300
+MODELO_BUSQUEDA = "anthropic/claude-haiku-5.5"
+MOTOR = "exa"  # medido 2026-10-15: ~US$0.008 por búsqueda y 3 resultados; el nativo de Anthropic cuesta ~US$0.023
+
+
+def consulta_desde_candidatos(candidatos: list, maximo: int = MAX_CANDIDATOS) -> str:
+    titulos = [c["titulo"] for c in candidatos[:maximo]]
+    return "; ".join(titulos)
+
+
+def _es_apa(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == DOMINIO or host.endswith("." + DOMINIO)
+
+
+def solo_apa(anotaciones: list) -> list:
+    """Convierte las anotaciones url_citation en guías, descartando duplicados y cualquier liga fuera de apa.org."""
+    guias, vistas = [], set()
+    for a in anotaciones:
+        if a.get("type") != "url_citation":
+            continue
+        d = a.get("url_citation") or {}
+        url = d.get("url", "")
+        if not _es_apa(url) or url in vistas:
+            continue
+        vistas.add(url)
+        cita = " ".join(re.sub(r"(?m)^#+\s*|\s*\.\.\.\s*", " ", d.get("content") or "").split())[:MAX_CITA]
+        guias.append({"titulo": " ".join((d.get("title") or url).split()), "url": url, "cita": cita})
+    return guias
+
+
+def buscar_guias_apa(
+    candidatos: list, api_key: str, post=requests.post, url=URL_OPENROUTER, modelo=MODELO_BUSQUEDA, timeout=120,
+    esperar=time.sleep,
+) -> list:
+    """Devuelve [{titulo, url, cita}] con guías de apa.org para los candidatos; lista vacía si no hay candidatos."""
+    if not api_key:
+        raise FlujoDetenido("Falta OPENROUTER_API_KEY para buscar guías de la APA")
+    if not candidatos:
+        return []
+    payload = {
+        "model": modelo,
+        "max_tokens": 2000,  # el razonamiento cuenta: con 600 se corta (finish_reason=length) y a veces no cita
+        "temperature": 0,
+        "messages": [{"role": "user", "content": (
+            "Busca guías de práctica clínica de la American Psychological Association sobre: "
+            f"{consulta_desde_candidatos(candidatos)}. Responde en dos frases y cita siempre las fuentes."
+        )}],
+        "plugins": [{"id": "web", "engine": MOTOR, "include_domains": [DOMINIO], "max_results": MAX_RESULTADOS}],
+    }
+    cabeceras = {"Authorization": f"Bearer {api_key}"}
+
+    def llamar():
+        try:
+            r = post(url, json=payload, headers=cabeceras, timeout=timeout)
+        except requests.RequestException as e:
+            raise FlujoDetenido(f"No se pudo conectar con OpenRouter para buscar guías: {e}") from e
+        if r.status_code != 200:
+            error = FlujoDetenido(f"OpenRouter respondió {r.status_code} al buscar guías: {r.text[:200]}")
+            error.status_code = r.status_code  # lo lee es_503 para reintentar solo ese caso
+            raise error
+        return r
+
+    r = con_reintentos_503(llamar, esperar=esperar)
+    try:
+        anotaciones = r.json()["choices"][0]["message"].get("annotations") or []
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
+        raise FlujoDetenido("OpenRouter devolvió un formato inesperado al buscar guías") from e
+    return solo_apa(anotaciones)

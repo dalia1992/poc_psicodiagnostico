@@ -36,7 +36,9 @@ def _lista(items, vacio="Ninguno identificado") -> str:
     return "\n".join(f"- {_mayuscula_inicial(i)}" for i in items) if items else f"- {vacio}"
 
 
-def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, alternativas: list, fecha: date) -> str:
+def render_markdown(
+    sintomas: dict, hipotesis: list, reporte: ReporteClinico, alternativas: list, fecha: date, guias: list | None = None
+) -> str:
     partes = [
         "# Reporte de apoyo al psicodiagnóstico",
         "## 1. Datos del caso",
@@ -80,6 +82,11 @@ def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, al
         "> Sugerencias a validar por el profesional. Solo se indica el nombre de la prueba: no se incluyen cuestionarios ni formas de calificación.",
     ]
     partes += [f"- **{_mayuscula_inicial(p.nombre)}**: {_mayuscula_inicial(p.motivo)}" for p in reporte.pruebas] or ["- Ninguna sugerida"]
+    if guias:
+        partes.append("### Guías clínicas de la APA")
+        partes += [
+            f"- [{g['titulo']}]({g['url']})" + (f" — «{g['cita']}»" if g.get("cita") else "") for g in guias
+        ]
     partes += [
         "## 7. Aviso",
         "Este reporte contiene hipótesis de apoyo generadas con ayuda de IA a partir de la CIE-11. No es un diagnóstico: la decisión clínica es del profesional.",

@@ -230,3 +230,39 @@ async def test_ocr_que_devuelve_texto_no_clinico_termina_fuera_de_alcance():
     r = await ejecutar(FOTO, c)
     assert r["estado_final"] == "fuera_de_alcance"
     assert r["texto_ocr"] == "Receta de pan amasado"
+
+
+GUIAS = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/depression-guideline", "cita": "Resumen."}]
+
+
+async def test_las_guias_apa_llegan_al_reporte_y_al_resultado():
+    c, espia = construir(guias=lambda candidatos: GUIAS)
+    r = await ejecutar(ENTRADA, c)
+    assert r["estado_final"] == "ok" and r["guias"] == GUIAS
+    assert "https://www.apa.org/depression-guideline" in r["reporte_md"]
+    assert "guias" in r["latencias"]
+
+
+async def test_la_busqueda_de_guias_solo_recibe_candidatos_sin_datos_del_paciente():
+    recibido = []
+    c, _ = construir(guias=lambda candidatos: recibido.append(json.dumps(candidatos, ensure_ascii=False)) or [])
+    await ejecutar(ENTRADA, c)
+    assert recibido and "Laura" not in recibido[0] and "Guadalajara" not in recibido[0]
+
+
+async def test_si_la_busqueda_de_guias_falla_el_reporte_sale_sin_guias_y_con_advertencia():
+    def guias(candidatos):
+        raise FlujoDetenido("OpenRouter respondió 402")
+
+    c, _ = construir(guias=guias)
+    r = await ejecutar(ENTRADA, c)
+    assert r["estado_final"] == "ok" and r["guias"] == []
+    assert any("402" in a for a in r["advertencias"])
+    assert "Guías clínicas" not in r["reporte_md"]
+
+
+async def test_sin_componente_de_guias_el_flujo_no_cambia():
+    c, _ = construir()
+    r = await ejecutar(ENTRADA, c)
+    assert r["estado_final"] == "ok" and r["guias"] == [] and "Guías clínicas" not in r["reporte_md"]
+    assert "guias" not in r["latencias"]

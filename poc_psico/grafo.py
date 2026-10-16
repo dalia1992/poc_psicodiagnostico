@@ -28,6 +28,7 @@ class Estado(TypedDict, total=False):
     traza_tools: list
     rondas_agente: int
     errores_tools: int
+    guias: list
     reporte_md: str
     advertencias: list
 
@@ -42,6 +43,7 @@ class Componentes:
     umbral: float = 0.5
     fecha: Callable[[], date] = date.today
     ocr: Callable[[str], str] | None = None  # ruta de foto -> texto; solo si la entrada es una foto
+    guias: Callable[[list], list] | None = None  # candidatos -> guías APA; opcional, si falla el reporte sale sin ellas
 
 
 @contextmanager
@@ -88,6 +90,15 @@ def construir_workflow(c: Componentes, metricas: dict):
             "errores_tools": errores,
         }
 
+    def nodo_guias(estado: Estado) -> dict:
+        if c.guias is None:
+            return {"guias": []}
+        try:
+            with _cronometro(metricas, "guias"):
+                return {"guias": c.guias(estado["candidatos"])}
+        except FlujoDetenido as e:
+            return {"guias": [], "advertencias": [f"No se pudieron consultar las guías de la APA: {e}"]}
+
     def nodo_reporte(estado: Estado) -> dict:
         with _cronometro(metricas, "reporte"):
             reporte = c.redactar(
@@ -96,20 +107,24 @@ def construir_workflow(c: Componentes, metricas: dict):
         hipotesis, advertencias = validar_hipotesis(reporte, estado["candidatos"])
         if not hipotesis:
             raise FlujoDetenido("El reporte no contiene hipótesis con código obtenido de las tools")
-        markdown = render_markdown(estado["sintomas"], hipotesis, reporte, estado["alternativas"], c.fecha())
-        return {"reporte_md": markdown, "advertencias": advertencias}
+        markdown = render_markdown(
+            estado["sintomas"], hipotesis, reporte, estado["alternativas"], c.fecha(), estado.get("guias")
+        )
+        return {"reporte_md": markdown, "advertencias": estado.get("advertencias", []) + advertencias}
 
     grafo = StateGraph(Estado)
     grafo.add_node("guardrail", nodo_guardrail)
     grafo.add_node("extraer", nodo_extraer)
     grafo.add_node("agente", nodo_agente)
+    grafo.add_node("guias", nodo_guias)
     grafo.add_node("reporte", nodo_reporte)
     grafo.add_edge(START, "guardrail")
     grafo.add_conditional_edges(
         "guardrail", lambda e: "extraer" if e["continuar"] else END, {"extraer": "extraer", END: END}
     )
     grafo.add_edge("extraer", "agente")
-    grafo.add_edge("agente", "reporte")
+    grafo.add_edge("agente", "guias")
+    grafo.add_edge("guias", "reporte")
     grafo.add_edge("reporte", END)
     return grafo.compile()
 
@@ -121,7 +136,7 @@ async def ejecutar(entrada: str, c: Componentes) -> dict:
     resultado = {
         "estado_final": "error", "razon": "", "texto_anon": "", "prob_clinico": None, "sintomas": None,
         "candidatos": [], "alternativas": [], "traza_tools": [], "rondas_agente": 0, "reporte_md": "",
-        "advertencias": [], "latencias": {}, "texto_ocr": None,
+        "advertencias": [], "latencias": {}, "texto_ocr": None, "guias": [],
     }
     if not entrada or not entrada.strip():
         resultado["razon"] = "La entrada está vacía"
@@ -161,6 +176,7 @@ async def ejecutar(entrada: str, c: Componentes) -> dict:
         sintomas=final["sintomas"],
         candidatos=final["candidatos"],
         alternativas=final["alternativas"],
+        guias=final.get("guias", []),
         traza_tools=final["traza_tools"],
         rondas_agente=final["rondas_agente"],
         reporte_md=reporte_md,
