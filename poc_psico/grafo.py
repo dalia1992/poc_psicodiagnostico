@@ -95,7 +95,7 @@ def construir_workflow(c: Componentes, metricas: dict):
             return {"guias": []}
         try:
             with _cronometro(metricas, "guias"):
-                return {"guias": c.guias(estado["candidatos"])}
+                return {"guias": c.guias(estado["candidatos"], estado["sintomas"])}
         except FlujoDetenido as e:
             return {"guias": [], "advertencias": [f"No se pudieron consultar las guías clínicas: {e}"]}
 

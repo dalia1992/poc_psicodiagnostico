@@ -123,22 +123,21 @@ def test_todos_los_items_del_reporte_inician_en_mayuscula():
 
 def test_el_reporte_agrupa_las_guias_por_fuente_y_tipo():
     guias = [
-        {"titulo": "Guía de evaluación", "url": "https://www.apa.org/e", "cita": "Qué evaluar.", "tipo": "evaluacion"},
-        {"titulo": "Guía de tratamiento", "url": "https://www.apa.org/t", "cita": "Recomienda terapia.", "tipo": "intervencion"},
+        {"titulo": "Guía de evaluación", "url": "https://www.apa.org/e", "cita": "Qué evaluar.", "tipo": "apa"},
         {"titulo": "GPC IMSS", "url": "https://www.imss.gob.mx/g.pdf", "cita": "", "tipo": "imss"},
         {"titulo": "mhGAP", "url": "https://www.who.int/m", "cita": "", "tipo": "oms"},
     ]
     md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15), guias)
     assert "### Guías clínicas consultadas" in md and "el sistema no recomienda tratamientos" in md
-    orden = [md.index(x) for x in ("**APA · Evaluación y diagnóstico**", "[Guía de evaluación]", "**APA · Intervención**",
-                                   "[Guía de tratamiento]", "**IMSS (México)", "[GPC IMSS]", "**OMS**", "[mhGAP]", "## 7. Aviso")]
-    assert orden == sorted(orden) and "Recomienda terapia." in md
+    orden = [md.index(x) for x in ("**IMSS (México)", "[GPC IMSS]", "**APA ·", "[Guía de evaluación]", "**OMS**", "[mhGAP]",
+                                   "## 7. Aviso")]
+    assert orden == sorted(orden)  # el IMSS va primero
 
 
-def test_una_guia_sin_tipo_se_muestra_como_evaluacion():
+def test_una_guia_sin_tipo_se_muestra_bajo_apa():
     md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15),
                          [{"titulo": "Guía", "url": "https://www.apa.org/g", "cita": ""}])
-    assert md.index("**APA · Evaluación y diagnóstico**") < md.index("[Guía]")
+    assert md.index("**APA ·") < md.index("[Guía]")
 
 
 def test_si_solo_hay_un_tipo_no_aparecen_los_otros_encabezados():

@@ -74,15 +74,17 @@ Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que e
 
 Privacidad: en local el NER corre en tu equipo y el texto original no sale de él.
 
-## Guías clínicas (APA, IMSS y OMS)
+## Guías clínicas (IMSS, APA y OMS)
 
-Después de la búsqueda CIE-11, `poc_psico/guias.py` hace cuatro búsquedas web con el plugin `web` de OpenRouter, cada una restringida a un dominio con `include_domains` (el filtro lo aplica OpenRouter, no el prompt): APA (`apa.org`) para evaluación y diagnóstico diferencial, con énfasis en qué hacer si falta información; APA para intervención; guías de práctica clínica del IMSS (`imss.gob.mx`); y guías de la OMS (`who.int`, incluye mhGAP). El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fuente, con título, liga y una cita corta. Las búsquedas de APA y OMS prefieren páginas en español y usan las de inglés si no hay.
+Después de la búsqueda CIE-11, `poc_psico/guias.py` busca guías con el plugin `web` de OpenRouter, cada búsqueda restringida a un dominio con `include_domains` (el filtro lo aplica OpenRouter, no el prompt). **El IMSS (`imss.gob.mx`) se busca siempre primero.** Después un LLM pequeño (`crear_decisor_fuentes`), con salida estructurada, ve los títulos CIE-11, los datos clínicos que faltan y lo que devolvió el IMSS, y decide si hace falta buscar además en la **APA** (`apa.org`: evaluación, diagnóstico diferencial e intervención, en una sola búsqueda) y/o la **OMS** (`who.int`, incluye mhGAP). Si el IMSS basta, no se hacen más búsquedas. No hay reglas fijas: la decisión y su razón (`motivo`) quedan en cada guía adicional de `resultado["guias"]`. Si el decisor falla, se conservan las guías del IMSS.
+
+El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fuente (IMSS primero), con título, liga y una cita corta. Las búsquedas de APA y OMS prefieren páginas en español y usan las de inglés si no hay.
 
 - **Privacidad:** a las búsquedas solo viajan los títulos de las entidades CIE-11 candidatas, nunca datos del paciente ni códigos.
-- **Seguridad:** el texto de la web no pasa por ningún LLM; solo se imprimen título, liga y cita, y `_dominio_permitido` descarta cualquier liga fuera del dominio de esa búsqueda.
+- **Seguridad:** el LLM solo elige la fuente (`apa` u `oms`, validado por el esquema); las consultas las arma el código y `_dominio_permitido` descarta cualquier liga fuera del dominio de esa búsqueda.
 - **IMSS:** sus guías usan códigos CIE-10 (F32, F33), no CIE-11, y la de depresión (clave IMSS-161-09) es de 2009: confirma su vigencia en el catálogo. Algunos títulos de los PDF salen genéricos (por ejemplo «Guía de práctica clínica»).
 - **Pruebas respaldadas:** el redactor recibe de cada guía su id, título y un extracto (hasta 2 500 caracteres) y, por cada prueba complementaria, indica `fuente_id` y copia una `cita_textual`. El código solo da por respaldada la prueba si esa cita aparece literalmente en el extracto de esa guía (sin distinguir mayúsculas ni acentos); entonces el reporte añade la liga de la guía, tomada de la guía y no del modelo. Si no, la prueba se muestra *sin referencia en las guías consultadas* y se añade una advertencia. Los extractos son texto web que entra a un LLM: se le indica tratarlos como datos y la salida es estructurada, pero no es una garantía total contra instrucciones inyectadas.
-- **Costo y tolerancia a fallas:** añade cuatro búsquedas por caso (hasta 3 resultados cada una, unos US$0.03 y 35 s en total). Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS_APA = False` en la celda 2.1.
+- **Costo y tolerancia a fallas:** añade de 1 a 3 búsquedas por caso (unos US$0.008 cada una) más una llamada de decisión. Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS_APA = False` en la celda 2.1.
 
 ## Foto de una nota manuscrita (OCR)
 

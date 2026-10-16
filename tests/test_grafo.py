@@ -233,11 +233,11 @@ async def test_ocr_que_devuelve_texto_no_clinico_termina_fuera_de_alcance():
     assert r["texto_ocr"] == "Receta de pan amasado"
 
 
-GUIAS = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/depression-guideline", "cita": "Resumen.", "tipo": "evaluacion"}]
+GUIAS = [{"titulo": "Guía de depresión", "url": "https://www.apa.org/depression-guideline", "cita": "Resumen.", "tipo": "apa"}]
 
 
 async def test_las_guias_apa_llegan_al_reporte_y_al_resultado():
-    c, espia = construir(guias=lambda candidatos: GUIAS)
+    c, espia = construir(guias=lambda candidatos, sintomas: GUIAS)
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "ok" and r["guias"] == GUIAS
     assert "https://www.apa.org/depression-guideline" in r["reporte_md"]
@@ -246,13 +246,13 @@ async def test_las_guias_apa_llegan_al_reporte_y_al_resultado():
 
 async def test_la_busqueda_de_guias_solo_recibe_candidatos_sin_datos_del_paciente():
     recibido = []
-    c, _ = construir(guias=lambda candidatos: recibido.append(json.dumps(candidatos, ensure_ascii=False)) or [])
+    c, _ = construir(guias=lambda candidatos, sintomas: recibido.append(json.dumps(candidatos, ensure_ascii=False)) or [])
     await ejecutar(ENTRADA, c)
     assert recibido and "Laura" not in recibido[0] and "Guadalajara" not in recibido[0]
 
 
 async def test_si_la_busqueda_de_guias_falla_el_reporte_sale_sin_guias_y_con_advertencia():
-    def guias(candidatos):
+    def guias(candidatos, sintomas):
         raise FlujoDetenido("OpenRouter respondió 402")
 
     c, _ = construir(guias=guias)
@@ -270,7 +270,7 @@ async def test_sin_componente_de_guias_el_flujo_no_cambia():
 
 
 async def test_el_redactor_recibe_las_guias_con_id_y_las_pruebas_respaldadas_llevan_su_liga():
-    guias = [{"id": "G1", "titulo": "Evaluación", "url": "https://www.apa.org/e", "cita": "", "tipo": "evaluacion",
+    guias = [{"id": "G1", "titulo": "Evaluación", "url": "https://www.apa.org/e", "cita": "", "tipo": "imss",
               "extracto": "Se recomienda el PHQ-9 para medir severidad."}]
 
     def redactar(s, ca, al, n, g=None):
@@ -280,7 +280,7 @@ async def test_el_redactor_recibe_las_guias_con_id_y_las_pruebas_respaldadas_lle
             pruebas=[PruebaSugerida(nombre="PHQ-9", motivo="Severidad", fuente_id="G1", cita_textual="el PHQ-9"),
                      PruebaSugerida(nombre="Inventada", motivo="x", fuente_id="G1", cita_textual="no está en la guía")])
 
-    c, _ = construir(guias=lambda candidatos: guias, redactar=redactar)
+    c, _ = construir(guias=lambda candidatos, sintomas: guias, redactar=redactar)
     r = await ejecutar(ENTRADA, c)
     assert [x["id"] for x in redactar.recibidas] == ["G1"]
     assert "[Evaluación](https://www.apa.org/e)" in r["reporte_md"]

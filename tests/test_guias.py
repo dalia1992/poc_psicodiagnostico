@@ -2,12 +2,20 @@ import pytest
 import requests
 
 from poc_psico.errores import FlujoDetenido
-from poc_psico.guias import _dominio_permitido, buscar_guias_apa, consulta_desde_candidatos, solo_dominios
+from poc_psico.guias import (
+    DecisionFuentes,
+    _dominio_permitido,
+    buscar_guias,
+    consulta_desde_candidatos,
+    crear_decisor_fuentes,
+    solo_dominios,
+)
 
 CANDIDATOS = [
     {"codigo": "6A70", "titulo": "Trastorno depresivo de episodio único", "url": "https://icd.who.int/x"},
     {"codigo": "6B00", "titulo": "Trastorno de ansiedad generalizada", "url": "https://icd.who.int/y"},
 ]
+SINTOMAS = {"emocionales": ["tristeza"], "datos_faltantes": ["duración", "severidad"]}
 
 
 def cita(url, titulo="Guía", contenido="Resumen de la guía."):
@@ -29,7 +37,7 @@ def respuesta_con(*anotaciones):
 
 
 class PostFalso:
-    """Una respuesta por búsqueda; si se pasa una sola, se repite (hay una búsqueda de evaluación y otra de intervención)."""
+    """Una respuesta por búsqueda, en orden; si se pasa una sola, se repite."""
 
     def __init__(self, *respuestas):
         self.respuestas, self.llamadas = list(respuestas), []
@@ -41,6 +49,32 @@ class PostFalso:
         if isinstance(r, Exception):
             raise r
         return r
+
+    @property
+    def dominios(self):
+        return [c["json"]["plugins"][0]["include_domains"][0] for c in self.llamadas]
+
+
+class Decisor:
+    """Decisor falso: devuelve las fuentes indicadas y registra lo que recibió."""
+
+    def __init__(self, fuentes=(), error=None):
+        self.fuentes, self.error, self.recibido = list(fuentes), error, []
+
+    def __call__(self, candidatos, sintomas, guias_imss):
+        self.recibido.append((candidatos, sintomas, guias_imss))
+        if self.error:
+            raise self.error
+        return DecisionFuentes(fuentes=self.fuentes, razon="porque sí")
+
+
+IMSS = cita("https://www.imss.gob.mx/guiasclinicas/161GER.pdf", "GPC IMSS", "Escala de Hamilton y Beck para depresión.")
+APA = cita("https://www.apa.org/depression-guideline", "Guía APA")
+OMS = cita("https://www.who.int/publications/mhgap", "mhGAP")
+
+
+def buscar(post, decisor=None, **kw):
+    return buscar_guias(CANDIDATOS, SINTOMAS, "clave", decisor or Decisor(), post=post, **kw)
 
 
 def test_la_consulta_usa_solo_titulos_de_la_cie11():
@@ -69,130 +103,194 @@ def test_dominio_permitido_acepta_el_dominio_y_sus_subdominios(url, esperado):
     assert bool(solo_dominios([cita(url)], ["apa.org"])) is esperado
 
 
-def test_la_peticion_restringe_el_dominio_y_no_lleva_datos_del_paciente():
-    post = PostFalso(respuesta_con(cita("https://www.apa.org/g")))
-    buscar_guias_apa(CANDIDATOS, "clave", post=post)
-    assert len(post.llamadas) == 4
-    enviado = post.llamadas[0]["json"]
-    plugin = enviado["plugins"][0]
-    assert plugin["id"] == "web" and plugin["include_domains"] == ["apa.org"] and plugin["engine"] == "exa"
-    assert enviado["max_tokens"] >= 2000
-    assert "exclude_domains" not in plugin
-    assert post.llamadas[0]["headers"]["Authorization"] == "Bearer clave"
-    assert "Trastorno depresivo" in str(enviado["messages"])
-
-
-def test_devuelve_titulo_url_y_cita_recortada():
-    largo = "x" * 1000
-    post = PostFalso(respuesta_con(cita("https://www.apa.org/g", "Guía de depresión", largo)))
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
-    assert guias[0]["titulo"] == "Guía de depresión" and guias[0]["url"] == "https://www.apa.org/g"
-    assert 0 < len(guias[0]["cita"]) <= 300
-
-
-def test_descarta_citas_fuera_de_apa_y_duplicadas():
-    post = PostFalso(respuesta_con(
-        cita("https://www.apa.org/g"), cita("https://www.apa.org/g"), cita("https://blog.example.com/z")))
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
-    assert [g["url"] for g in guias] == ["https://www.apa.org/g"]
-
-
-def test_sin_anotaciones_devuelve_lista_vacia():
-    assert buscar_guias_apa(CANDIDATOS, "clave", post=PostFalso(respuesta_con())) == []
-
-
-def test_sin_candidatos_no_llama_a_la_red():
-    post = PostFalso()
-    assert buscar_guias_apa([], "clave", post=post) == []
-    assert post.llamadas == []
-
-
-def test_sin_clave_falla():
-    with pytest.raises(FlujoDetenido, match="OPENROUTER_API_KEY"):
-        buscar_guias_apa(CANDIDATOS, "", post=PostFalso())
-
-
-def test_error_http_levanta_flujo_detenido():
-    with pytest.raises(FlujoDetenido, match="402"):
-        buscar_guias_apa(CANDIDATOS, "clave", post=PostFalso(RespuestaFalsa(402, texto="sin créditos")))
-
-
-def test_error_de_red_levanta_flujo_detenido():
-    with pytest.raises(FlujoDetenido, match="conectar"):
-        buscar_guias_apa(CANDIDATOS, "clave", post=PostFalso(requests.ConnectionError("caído")))
-
-
-def test_formato_inesperado_levanta_flujo_detenido():
-    with pytest.raises(FlujoDetenido, match="formato"):
-        buscar_guias_apa(CANDIDATOS, "clave", post=PostFalso(RespuestaFalsa(cuerpo={"otra": 1})))
-
-
-def test_reintenta_un_503_y_luego_responde():
-    post = PostFalso(RespuestaFalsa(503, texto="overload"), respuesta_con(cita("https://www.apa.org/g")),
-                     respuesta_con(), respuesta_con(), respuesta_con())
-    esperas = []
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post, esperar=esperas.append)
-    assert len(guias) == 1 and esperas == [1]
-
-
 def test_la_cita_se_limpia_de_encabezados_markdown_y_puntos_suspensivos():
     guias = solo_dominios([cita("https://www.apa.org/g", contenido="## GUÍA\n\n...\n\nRecomienda terapia.")], ["apa.org"])
     assert guias[0]["cita"] == "GUÍA Recomienda terapia."
 
 
-def test_hace_cuatro_busquedas_cada_una_restringida_a_su_dominio():
-    post = PostFalso(
-        respuesta_con(cita("https://www.apa.org/eval", "Evaluación")),
-        respuesta_con(cita("https://www.apa.org/trat", "Tratamiento")),
-        respuesta_con(cita("https://www.imss.gob.mx/guiasclinicas/161GER.pdf", "GPC IMSS")),
-        respuesta_con(cita("https://www.who.int/publications/mhgap", "mhGAP")),
-    )
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
-    dominios = [c["json"]["plugins"][0]["include_domains"] for c in post.llamadas]
-    assert dominios == [["apa.org"], ["apa.org"], ["imss.gob.mx"], ["who.int"]]
-    textos = [str(c["json"]["messages"]).lower() for c in post.llamadas]
-    assert "evaluación" in textos[0] and "incomplet" in textos[0]
-    assert "intervención" in textos[1]
-    assert "imss" in textos[2] and "mhgap" in textos[3]
-    assert [g["tipo"] for g in guias] == ["evaluacion", "intervencion", "imss", "oms"]
+def test_titulo_url_y_cita_recortada():
+    largo = "x" * 1000
+    guias = solo_dominios([cita("https://www.apa.org/g", "Guía de depresión", largo)], ["apa.org"])
+    assert guias[0]["titulo"] == "Guía de depresión" and 0 < len(guias[0]["cita"]) <= 300
 
 
-def test_cada_busqueda_descarta_ligas_de_otros_dominios_aunque_el_servidor_las_devuelva():
-    post = PostFalso(respuesta_con(cita("https://www.apa.org/g"), cita("https://www.who.int/x")))
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
-    assert {(g["tipo"], g["url"]) for g in guias} == {("evaluacion", "https://www.apa.org/g"), ("oms", "https://www.who.int/x")}
+def test_siempre_busca_primero_en_el_imss_y_si_el_decisor_no_pide_mas_no_busca_en_otro_lado():
+    post = PostFalso(respuesta_con(IMSS))
+    decisor = Decisor([])
+    guias = buscar(post, decisor)
+    assert post.dominios == ["imss.gob.mx"] and [g["tipo"] for g in guias] == ["imss"]
+    assert len(decisor.recibido) == 1
 
 
-def test_las_busquedas_de_apa_y_oms_prefieren_espanol_con_ingles_de_respaldo_y_ninguna_lleva_codigos():
-    post = PostFalso(respuesta_con())
-    buscar_guias_apa(CANDIDATOS, "clave", post=post)
+def test_el_decisor_recibe_candidatos_sintomas_y_lo_que_devolvio_el_imss():
+    post = PostFalso(respuesta_con(IMSS))
+    decisor = Decisor([])
+    buscar(post, decisor)
+    candidatos, sintomas, guias_imss = decisor.recibido[0]
+    assert candidatos == CANDIDATOS and sintomas == SINTOMAS
+    assert guias_imss[0]["titulo"] == "GPC IMSS"
+
+
+def test_las_fuentes_adicionales_que_pide_el_decisor_se_buscan_en_su_dominio_con_apa_unificada():
+    post = PostFalso(respuesta_con(IMSS), respuesta_con(APA), respuesta_con(OMS))
+    guias = buscar(post, Decisor(["oms", "apa"]))
+    assert post.dominios == ["imss.gob.mx", "apa.org", "who.int"]  # orden fijo: apa antes que oms
+    assert [g["tipo"] for g in guias] == ["imss", "apa", "oms"]
+    texto_apa = str(post.llamadas[1]["json"]["messages"]).lower()
+    assert "evaluación" in texto_apa and "incomplet" in texto_apa and "intervenc" in texto_apa
+
+
+def test_ignora_fuentes_invalidas_o_repetidas_aunque_el_decisor_se_salte_el_esquema():
+    from types import SimpleNamespace
+
+    post = PostFalso(respuesta_con(IMSS), respuesta_con(APA))
+    crudo = lambda c, s, g: SimpleNamespace(fuentes=["apa", "apa", "imss", "bing"], razon="x")  # noqa: E731
+    guias = buscar_guias(CANDIDATOS, SINTOMAS, "clave", crudo, post=post)
+    assert post.dominios == ["imss.gob.mx", "apa.org"] and len(guias) == 2
+
+
+def test_una_decision_fuera_del_esquema_deja_solo_las_guias_del_imss():
+    class LLMInvalido:
+        def with_structured_output(self, esquema, method=None):
+            return EstructuradoFalso(ValueError("el modelo devolvió una fuente inválida"))
+
+    post = PostFalso(respuesta_con(IMSS))
+    guias = buscar_guias(CANDIDATOS, SINTOMAS, "clave", crear_decisor_fuentes(LLMInvalido()), post=post)
+    assert [g["tipo"] for g in guias] == ["imss"]
+
+
+def test_si_el_decisor_falla_se_conservan_las_guias_del_imss():
+    post = PostFalso(respuesta_con(IMSS))
+    guias = buscar(post, Decisor(error=RuntimeError("caído")))
+    assert [g["tipo"] for g in guias] == ["imss"] and post.dominios == ["imss.gob.mx"]
+
+
+def test_las_busquedas_restringen_el_dominio_y_ninguna_lleva_codigos_ni_datos_del_paciente():
+    post = PostFalso(respuesta_con(IMSS), respuesta_con(APA), respuesta_con(OMS))
+    buscar(post, Decisor(["apa", "oms"]))
     for llamada in post.llamadas:
-        assert "6A70" not in str(llamada["json"]["messages"])
-    for i in (0, 1, 3):
+        plugin = llamada["json"]["plugins"][0]
+        assert plugin["id"] == "web" and plugin["engine"] == "exa" and "exclude_domains" not in plugin
+        assert "6A70" not in str(llamada["json"]["messages"]) and "tristeza" not in str(llamada["json"]["messages"])
+        assert llamada["json"]["max_tokens"] >= 2000
+        assert llamada["headers"]["Authorization"] == "Bearer clave"
+    assert "Trastorno depresivo" in str(post.llamadas[0]["json"]["messages"])
+
+
+def test_las_busquedas_de_apa_y_oms_prefieren_espanol_con_ingles_de_respaldo():
+    post = PostFalso(respuesta_con(IMSS), respuesta_con(APA), respuesta_con(OMS))
+    buscar(post, Decisor(["apa", "oms"]))
+    for i in (1, 2):
         mensaje = str(post.llamadas[i]["json"]["messages"])
         assert "español" in mensaje and "inglés" in mensaje
 
 
+def test_cada_busqueda_descarta_ligas_de_otros_dominios_aunque_el_servidor_las_devuelva():
+    post = PostFalso(respuesta_con(IMSS, cita("https://www.who.int/x")))
+    guias = buscar(post, Decisor())
+    assert [g["url"] for g in guias] == [IMSS["url_citation"]["url"]]
+
+
 def test_una_liga_repetida_entre_busquedas_se_conserva_solo_una_vez():
-    post = PostFalso(respuesta_con(cita("https://www.apa.org/g"), cita("https://www.imss.gob.mx/a"), cita("https://www.who.int/b")))
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
-    assert [(g["tipo"], g["url"]) for g in guias] == [
-        ("evaluacion", "https://www.apa.org/g"), ("imss", "https://www.imss.gob.mx/a"), ("oms", "https://www.who.int/b")]
-
-
-def test_si_una_busqueda_falla_falla_todo_para_no_dar_guias_a_medias():
-    post = PostFalso(respuesta_con(cita("https://www.apa.org/g")), RespuestaFalsa(402, texto="sin créditos"))
-    with pytest.raises(FlujoDetenido, match="402"):
-        buscar_guias_apa(CANDIDATOS, "clave", post=post)
+    post = PostFalso(respuesta_con(IMSS), respuesta_con(IMSS, APA))
+    guias = buscar(post, Decisor(["apa"]))
+    assert [(g["tipo"], g["id"]) for g in guias] == [("imss", "G1"), ("apa", "G2")]
 
 
 def test_cada_guia_trae_id_secuencial_y_extracto_largo_ademas_de_la_cita_corta():
     largo = "Beck Depression Inventory. " * 200
-    post = PostFalso(
-        respuesta_con(cita("https://www.apa.org/a", "A", largo)), respuesta_con(), respuesta_con(),
-        respuesta_con(cita("https://www.who.int/b", "B", "texto corto")),
-    )
-    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
+    post = PostFalso(respuesta_con(cita("https://www.imss.gob.mx/a", "A", largo)),
+                     respuesta_con(cita("https://www.apa.org/b", "B", "texto corto")))
+    guias = buscar(post, Decisor(["apa"]))
     assert [g["id"] for g in guias] == ["G1", "G2"]
     assert 300 < len(guias[0]["extracto"]) <= 2500 and len(guias[0]["cita"]) <= 300
     assert guias[1]["extracto"] == "texto corto"
+
+
+def test_las_guias_adicionales_conservan_el_motivo_del_decisor():
+    post = PostFalso(respuesta_con(IMSS), respuesta_con(APA))
+    guias = buscar(post, Decisor(["apa"]))
+    assert "motivo" not in guias[0] and guias[1]["motivo"] == "porque sí"
+
+
+def test_sin_anotaciones_devuelve_lista_vacia():
+    assert buscar(PostFalso(respuesta_con())) == []
+
+
+def test_sin_candidatos_no_llama_a_la_red_ni_al_decisor():
+    post, decisor = PostFalso(), Decisor()
+    assert buscar_guias([], SINTOMAS, "clave", decisor, post=post) == []
+    assert post.llamadas == [] and decisor.recibido == []
+
+
+def test_sin_clave_falla():
+    with pytest.raises(FlujoDetenido, match="OPENROUTER_API_KEY"):
+        buscar_guias(CANDIDATOS, SINTOMAS, "", Decisor(), post=PostFalso())
+
+
+def test_error_http_levanta_flujo_detenido():
+    with pytest.raises(FlujoDetenido, match="402"):
+        buscar(PostFalso(RespuestaFalsa(402, texto="sin créditos")))
+
+
+def test_error_de_red_levanta_flujo_detenido():
+    with pytest.raises(FlujoDetenido, match="conectar"):
+        buscar(PostFalso(requests.ConnectionError("caído")))
+
+
+def test_formato_inesperado_levanta_flujo_detenido():
+    with pytest.raises(FlujoDetenido, match="formato"):
+        buscar(PostFalso(RespuestaFalsa(cuerpo={"otra": 1})))
+
+
+def test_si_falla_una_busqueda_adicional_falla_todo_para_no_dar_guias_a_medias():
+    post = PostFalso(respuesta_con(IMSS), RespuestaFalsa(402, texto="sin créditos"))
+    with pytest.raises(FlujoDetenido, match="402"):
+        buscar(post, Decisor(["apa"]))
+
+
+def test_reintenta_un_503_y_luego_responde():
+    post = PostFalso(RespuestaFalsa(503, texto="overload"), respuesta_con(IMSS))
+    esperas = []
+    guias = buscar(post, esperar=esperas.append)
+    assert len(guias) == 1 and esperas == [1]
+
+
+# ---- decisor con LLM
+
+class EstructuradoFalso:
+    def __init__(self, resultado):
+        self.resultado, self.llamadas = resultado, []
+
+    def invoke(self, mensajes):
+        self.llamadas.append(mensajes)
+        if isinstance(self.resultado, Exception):
+            raise self.resultado
+        return self.resultado
+
+
+class LLMFalso:
+    def __init__(self, resultado):
+        self.estructurado, self.esquema = EstructuradoFalso(resultado), None
+
+    def with_structured_output(self, esquema, method=None):
+        self.esquema = esquema
+        return self.estructurado
+
+
+def test_el_decisor_usa_salida_estructurada_y_solo_envia_titulos_datos_faltantes_y_extractos_del_imss():
+    llm = LLMFalso(DecisionFuentes(fuentes=["apa"], razon="faltan guías de evaluación"))
+    guias_imss = [{"id": "G1", "titulo": "GPC IMSS", "url": "https://www.imss.gob.mx/x", "extracto": "E" * 900}]
+    sintomas = {"emocionales": ["tristeza"], "datos_faltantes": ["duración"], "paciente_ref": "[PER_1]", "edad": 34}
+    decision = crear_decisor_fuentes(llm)(CANDIDATOS, sintomas, guias_imss)
+    assert decision.fuentes == ["apa"] and llm.esquema is DecisionFuentes
+    enviado = str(llm.estructurado.llamadas[0])
+    assert "Trastorno depresivo" in enviado and "duración" in enviado and "GPC IMSS" in enviado
+    assert "[PER_1]" not in enviado and "tristeza" not in enviado and "6A70" not in enviado
+    assert "https://www.imss.gob.mx" not in enviado and "E" * 900 not in enviado
+    assert "datos" in llm.estructurado.llamadas[0][0][1]  # el prompt indica que el texto web son datos
+
+
+def test_el_esquema_solo_admite_fuentes_apa_u_oms():
+    with pytest.raises(Exception):
+        DecisionFuentes(fuentes=["imss"], razon="x")

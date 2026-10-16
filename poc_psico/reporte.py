@@ -30,9 +30,8 @@ def validar_hipotesis(reporte: ReporteClinico, candidatos: list):
 
 
 ETIQUETAS_GUIAS = {
-    "evaluacion": "APA · Evaluación y diagnóstico",
-    "intervencion": "APA · Intervención",
     "imss": "IMSS (México) · Guías de práctica clínica",
+    "apa": "APA · Evaluación, diagnóstico e intervención",
     "oms": "OMS",
 }
 
@@ -130,7 +129,7 @@ def render_markdown(
     if guias:
         partes += ["### Guías clínicas consultadas", "> Referencias para consulta del profesional; el sistema no recomienda tratamientos."]
         for tipo, etiqueta in ETIQUETAS_GUIAS.items():
-            grupo = [g for g in guias if g.get("tipo", "evaluacion") == tipo]
+            grupo = [g for g in guias if g.get("tipo", "apa") == tipo]
             if grupo:
                 partes.append(f"**{etiqueta}**")
                 partes.append("\n".join(f"- [{g['titulo']}]({g['url']})" + (f" — «{g['cita']}»" if g.get("cita") else "") for g in grupo))
