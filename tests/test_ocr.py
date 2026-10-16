@@ -6,15 +6,8 @@ import requests
 from PIL import Image
 
 from poc_psico.errores import FlujoDetenido
-from poc_psico.ocr import OcrError, es_archivo, leer_archivo_mistral
-
-
-class Respuesta:
-    def __init__(self, status=200, cuerpo=None, texto=""):
-        self.status_code, self._cuerpo, self.text = status, cuerpo, texto
-
-    def json(self):
-        return self._cuerpo
+from poc_psico.ocr import MAX_PAGINAS_PDF, OcrError, es_archivo, leer_archivo_mistral
+from tests.helpers import RespuestaFalsa
 
 
 @pytest.fixture
@@ -43,7 +36,7 @@ def test_ocr_error_es_un_flujo_detenido():
 def anotada(texto):
     contenido = [{"type": "text", "text": f'<file name="vineta.pdf">\n{texto}\n</file>'}]
     anotacion = {"type": "file", "file": {"name": "vineta.pdf", "content": contenido}}
-    return Respuesta(200, {"choices": [{"message": {"content": "OK", "annotations": [anotacion]}}]})
+    return RespuestaFalsa(200, {"choices": [{"message": {"content": "OK", "annotations": [anotacion]}}]})
 
 
 def test_mistral_envia_la_foto_como_pdf_con_el_plugin_y_devuelve_el_texto_sin_la_etiqueta_file(foto):
@@ -72,7 +65,7 @@ def test_mistral_sin_clave_detiene_el_flujo_sin_llamar(foto):
 
 
 def test_mistral_reintenta_cuando_el_motor_de_parseo_esta_saturado(foto):
-    respuestas = [Respuesta(400, texto="Failed to parse the file: The document parsing engine is currently rate limited."),
+    respuestas = [RespuestaFalsa(400, texto="Failed to parse the file: The document parsing engine is currently rate limited."),
                   anotada("hola")]
     esperas = []
     assert leer_archivo_mistral(foto, "k", post=lambda *a, **k: respuestas.pop(0), esperar=esperas.append) == "hola"
@@ -80,7 +73,7 @@ def test_mistral_reintenta_cuando_el_motor_de_parseo_esta_saturado(foto):
 
 
 def test_mistral_si_la_saturacion_persiste_se_detiene_con_el_motivo(foto):
-    saturado = Respuesta(400, texto="engine is currently rate limited")
+    saturado = RespuestaFalsa(400, texto="engine is currently rate limited")
     esperas = []
     with pytest.raises(OcrError, match="rate limited"):
         leer_archivo_mistral(foto, "k", post=lambda *a, **k: saturado, esperar=esperas.append)
@@ -93,7 +86,7 @@ def test_mistral_otros_errores_http_no_se_reintentan_y_dicen_el_codigo(foto, sta
 
     def post(*a, **k):
         llamadas.append(1)
-        return Respuesta(status, texto="error")
+        return RespuestaFalsa(status, texto="error")
 
     with pytest.raises(OcrError, match=str(status)):
         leer_archivo_mistral(foto, "k", post=post, esperar=lambda s: None)
@@ -101,7 +94,7 @@ def test_mistral_otros_errores_http_no_se_reintentan_y_dicen_el_codigo(foto, sta
 
 
 def test_mistral_sin_texto_en_las_anotaciones_detiene_el_flujo_y_no_inventa(foto):
-    sin_anotaciones = Respuesta(200, {"choices": [{"message": {"content": "OK"}}]})
+    sin_anotaciones = RespuestaFalsa(200, {"choices": [{"message": {"content": "OK"}}]})
     with pytest.raises(OcrError, match="No se pudo leer texto"):
         leer_archivo_mistral(foto, "k", post=lambda *a, **k: sin_anotaciones)
 
@@ -158,3 +151,23 @@ def test_mistral_con_pdf_inexistente_o_roto_detiene_el_flujo(tmp_path):
     roto.write_text("no es un pdf")
     with pytest.raises(OcrError, match="PDF válido"):
         leer_archivo_mistral(roto, "k", post=lambda *a, **k: anotada("x"))
+
+
+def _pdf_de(paginas, tmp_path):
+    ruta = tmp_path / f"{paginas}p.pdf"
+    hoja = Image.new("RGB", (100, 100), "white")
+    hoja.save(ruta, "PDF", save_all=True, append_images=[hoja] * (paginas - 1))
+    return ruta
+
+
+def test_mistral_acepta_un_pdf_con_el_maximo_de_paginas(tmp_path):
+    ruta = _pdf_de(MAX_PAGINAS_PDF, tmp_path)
+    assert leer_archivo_mistral(ruta, "k", post=lambda *a, **k: anotada("hola")) == "hola"
+
+
+def test_mistral_rechaza_un_pdf_con_mas_paginas_que_el_maximo_sin_llamar(tmp_path):
+    def post(*a, **k):
+        raise AssertionError("no debe llamar")
+
+    with pytest.raises(OcrError, match=f"el máximo es {MAX_PAGINAS_PDF}"):
+        leer_archivo_mistral(_pdf_de(MAX_PAGINAS_PDF + 1, tmp_path), "k", post=post)

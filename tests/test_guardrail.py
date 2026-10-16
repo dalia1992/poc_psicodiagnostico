@@ -14,18 +14,9 @@ from poc_psico.guardrail import (
     guardrail_llm,
     pasa_guardrail,
 )
+from tests.helpers import RespuestaFalsa
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
-
-
-class RespuestaFalsa:
-    def __init__(self, estado=200, cuerpo=None, texto=""):
-        self.status_code = estado
-        self._cuerpo = cuerpo
-        self.text = texto or json.dumps(cuerpo)
-
-    def json(self):
-        return self._cuerpo
 
 
 def test_payload_contiene_modelo_estado_y_pregunta():

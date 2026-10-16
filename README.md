@@ -88,13 +88,13 @@ El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fu
 
 ## Foto o PDF de una nota manuscrita (OCR)
 
-`ejecutar()` acepta como entrada texto libre o la ruta de una foto `.jpg`/`.png` o de un `.pdf`. El archivo se lee con Mistral OCR vía OpenRouter (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. Solo necesita `OPENROUTER_API_KEY` y funciona también en Colab.
+`ejecutar()` acepta como entrada texto libre o la ruta de una foto `.jpg`/`.png` o de un `.pdf` (máximo 10 páginas). El archivo se lee con Mistral OCR vía OpenRouter (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. Solo necesita `OPENROUTER_API_KEY` y funciona también en Colab.
 
 > **El archivo sale a OpenRouter y Mistral con los nombres sin anonimizar**, porque se lee antes de anonimizar. Usa solo fotos o PDF de datos sintéticos o anonimizados.
 
 Tarda unos 3 a 4 s y tuvo un error de 13.9 % de caracteres en una sola foto manuscrita sintética (cifra de orientación, no una tasa de error). Leyó el nombre en mayúsculas ("LUCTA" por "Lucía"); el NER lo partió en dos entidades y el reporte quedó con "LU" como nombre. No se filtra el nombre, pero **revisa el nombre y `r["texto_ocr"]`**: un error de lectura puede cambiar el sentido clínico.
 
-Un PDF se envía tal cual; una foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por página (foto o PDF) más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
+Un PDF se envía tal cual; una foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por página (foto o PDF; un PDF de más de 10 páginas se rechaza antes de llamar al servicio) más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
 
 Uso: en el notebook, celda 5.1, escribe la ruta en `RUTA_ARCHIVO`; o desde Python: `await ejecutar("foto.jpg", componentes)`. Para medir tu caso: `scripts/spike_ocr.py foto.jpg transcripcion.txt` (con tiempo y tasa de error por carácter).
 

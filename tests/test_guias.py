@@ -11,6 +11,7 @@ from poc_psico.guias import (
     crear_decisor_jev,
     solo_dominios,
 )
+from tests.helpers import RespuestaFalsa
 
 CANDIDATOS = [
     {"codigo": "6A70", "titulo": "Trastorno depresivo de episodio único", "url": "https://icd.who.int/x"},
@@ -21,16 +22,6 @@ SINTOMAS = {"emocionales": ["tristeza"], "datos_faltantes": ["duración", "sever
 
 def cita(url, titulo="Guía", contenido="Resumen de la guía."):
     return {"type": "url_citation", "url_citation": {"url": url, "title": titulo, "content": contenido}}
-
-
-class RespuestaFalsa:
-    def __init__(self, status=200, cuerpo=None, texto=""):
-        self.status_code, self._cuerpo, self.text = status, cuerpo, texto
-
-    def json(self):
-        if isinstance(self._cuerpo, Exception):
-            raise self._cuerpo
-        return self._cuerpo
 
 
 def respuesta_con(*anotaciones):

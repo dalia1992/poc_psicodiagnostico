@@ -5,10 +5,8 @@ import requests
 from pydantic import BaseModel, Field
 
 from .errores import FlujoDetenido
-from .peticiones import post_openrouter
-from .reintentos import con_reintentos_503
+from .peticiones import payload_decisions, post_decisions
 
-URL_DECISIONS = "https://openrouter.ai/api/alpha/decisions"
 # JEV devuelve probabilidades (pregunta noul) en ~0.3 s por unos US$0.00002; sustituye a respan/span-01-lite:free (2026-10-15).
 # Versión fija para reproducir resultados; "~typesafe/jev-latest" apunta siempre a la más reciente.
 MODELO_DECISIONS = "typesafe/jev-1.14-20261014"
@@ -29,11 +27,7 @@ class GuardrailError(FlujoDetenido):
 
 
 def construir_payload(texto: str, modelo: str = MODELO_GUARDRAIL) -> dict:
-    return {
-        "model": modelo,
-        "state": texto,
-        "questions": {PREGUNTA_ID: {"type": "noul", "instructions": INSTRUCCION}},
-    }
+    return payload_decisions(modelo, texto, {PREGUNTA_ID: {"type": "noul", "instructions": INSTRUCCION}})
 
 
 def extraer_prob(respuesta: dict, ruta=None) -> float:
@@ -56,14 +50,7 @@ def extraer_prob(respuesta: dict, ruta=None) -> float:
 def consultar_decisions(
     texto, api_key, modelo=MODELO_GUARDRAIL, post=requests.post, timeout=30, ruta=None, esperar=time.sleep
 ) -> float:
-    def _llamar():
-        return post_openrouter(
-            post, URL_DECISIONS, construir_payload(texto, modelo), api_key, timeout, error=GuardrailError,
-            sin_conexion="No se pudo llamar a la Decisions API", respondio="La Decisions API respondió {codigo}",
-        )
-
-    # Un 503 (sobrecarga) se reintenta hasta 3 veces con 1, 2 y 4 s; otros errores fallan de inmediato.
-    respuesta = con_reintentos_503(_llamar, esperar=esperar)
+    respuesta = post_decisions(post, construir_payload(texto, modelo), api_key, timeout, esperar, error=GuardrailError)
     return extraer_prob(respuesta.json(), ruta)
 
 

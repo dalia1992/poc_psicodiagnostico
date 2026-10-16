@@ -7,6 +7,8 @@ import time
 
 import requests
 from PIL import Image, UnidentifiedImageError
+from pypdf import PdfReader
+from pypdf.errors import PyPdfError
 
 from .errores import FlujoDetenido
 from .peticiones import URL_OPENROUTER, post_openrouter
@@ -18,6 +20,7 @@ EXTENSIONES = EXTENSIONES_IMAGEN | {".pdf"}
 # la petición: su respuesta se ignora y max_tokens bajo evita esperar su generación (spike 2026-10-14).
 MODELO_ACOMPANANTE = "openai/gpt-4o-mini"
 LADO_MAXIMO_MISTRAL = 2000
+MAX_PAGINAS_PDF = 10
 
 
 class OcrError(FlujoDetenido):
@@ -78,8 +81,12 @@ def _pdf_base64(ruta: pathlib.Path) -> str:
         return _codificar(_cargar(ruta, LADO_MAXIMO_MISTRAL), "PDF", resolution=150)
     _exigir_archivo(ruta)
     contenido = ruta.read_bytes()
-    if not contenido.startswith(b"%PDF"):
-        raise OcrError(f"{ruta.name} no es un PDF válido")
+    try:
+        paginas = len(PdfReader(io.BytesIO(contenido)).pages)
+    except (PyPdfError, ValueError, OSError) as e:
+        raise OcrError(f"{ruta.name} no es un PDF válido o está protegido: {e}") from e
+    if paginas > MAX_PAGINAS_PDF:
+        raise OcrError(f"{ruta.name} tiene {paginas} páginas: el máximo es {MAX_PAGINAS_PDF}")
     return _base64(contenido)
 
 

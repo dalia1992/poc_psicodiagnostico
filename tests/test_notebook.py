@@ -50,7 +50,7 @@ def test_el_notebook_usa_max_rondas_y_no_el_limite_de_pasos():
 def test_el_ocr_del_notebook_usa_solo_mistral():
     codigo = "\n".join(c.source for c in cargar_notebook().cells if c.cell_type == "code")
     assert "from poc_psico.ocr import leer_archivo_mistral" in codigo
-    assert 'leer_archivo_mistral(ruta, os.environ["OPENROUTER_API_KEY"])' in codigo
+    assert 'leer_archivo_mistral(ruta, CLAVE)' in codigo
     assert "ocr=_ocr" in codigo
     assert "RUTA_ARCHIVO" in codigo
     assert "OCR_MOTOR" not in codigo and "Ollama" not in codigo

@@ -9,7 +9,8 @@ import requests
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from poc_psico.entorno import cargar_env  # noqa: E402
-from poc_psico.guardrail import MODELO_DECISIONS, URL_DECISIONS  # noqa: E402
+from poc_psico.guardrail import MODELO_DECISIONS  # noqa: E402
+from poc_psico.peticiones import URL_DECISIONS  # noqa: E402
 
 FIXTURES = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 

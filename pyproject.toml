@@ -13,6 +13,7 @@ dependencies = [
     "requests>=2.32",
     "python-dotenv>=1.0",
     "pillow>=10",
+    "pypdf>=5",
 ]
 
 [project.optional-dependencies]
