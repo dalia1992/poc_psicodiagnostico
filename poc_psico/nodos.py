@@ -3,7 +3,7 @@ import json
 import time
 
 from .esquemas import ReporteClinico, SintomasPaciente
-from .reintentos import invocar_estructurado
+from .reintentos import estructurar, invocar_estructurado
 
 PROMPT_EXTRACTOR = """Eres un asistente que extrae datos clínicos de la viñeta de un paciente, ya anonimizada (los nombres, lugares y organizaciones aparecen como [PER_1], [LOC_1], [ORG_1]).
 Reglas:
@@ -39,7 +39,7 @@ def _explicar_fallo(args, error):
 
 
 def crear_extractor(llm, esperar=time.sleep):
-    estructurado = llm.with_structured_output(SintomasPaciente, method="function_calling")
+    estructurado = estructurar(llm, SintomasPaciente)
 
     def extraer(texto_anon: str) -> dict:
         mensajes = [("system", PROMPT_EXTRACTOR), ("human", texto_anon)]
@@ -49,7 +49,7 @@ def crear_extractor(llm, esperar=time.sleep):
 
 
 def crear_redactor(llm, esperar=time.sleep):
-    estructurado = llm.with_structured_output(ReporteClinico, method="function_calling")
+    estructurado = estructurar(llm, ReporteClinico)
 
     def redactar(
         sintomas: dict, candidatos: list, alternativas: list, notas_busqueda_cie11: str, guias: list | None = None

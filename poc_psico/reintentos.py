@@ -79,6 +79,11 @@ def con_reintentos_formato(funcion, *args, corregir=None, **kwargs):
                 args = corregir(args, error)
 
 
+def estructurar(llm, esquema):
+    """El LLM con salida estructurada por function calling (el contrato es el esquema Pydantic)."""
+    return llm.with_structured_output(esquema, method="function_calling")
+
+
 def invocar_estructurado(invocar, mensajes, esperar=time.sleep, corregir=None):
     """Llama al LLM con salida estructurada: reintenta un 503 con espera y una salida con formato inválido sin ella."""
     return con_reintentos_formato(con_reintentos_503, invocar, mensajes, esperar=esperar, corregir=corregir)

@@ -9,12 +9,11 @@ import requests
 from PIL import Image, UnidentifiedImageError
 
 from .errores import FlujoDetenido
-from .peticiones import post_openrouter
+from .peticiones import URL_OPENROUTER, post_openrouter
 from .reintentos import con_reintentos_503
 
 EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png"}
 EXTENSIONES = EXTENSIONES_IMAGEN | {".pdf"}
-URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 # El plugin file-parser solo parsea PDF (un JPEG directo responde 200 sin texto). El modelo de chat solo acompaña
 # la petición: su respuesta se ignora y max_tokens bajo evita esperar su generación (spike 2026-10-14).
 MODELO_ACOMPANANTE = "openai/gpt-4o-mini"
@@ -31,9 +30,17 @@ def es_archivo(entrada) -> bool:
     return bool(texto) and "\n" not in texto and len(texto) < 500 and pathlib.Path(texto).suffix.lower() in EXTENSIONES
 
 
-def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
+def _exigir_archivo(ruta: pathlib.Path) -> None:
     if not ruta.is_file():
         raise OcrError(f"El archivo no existe: {ruta}")
+
+
+def _base64(datos: bytes) -> str:
+    return base64.b64encode(datos).decode()
+
+
+def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
+    _exigir_archivo(ruta)
     try:
         with Image.open(ruta) as original:
             imagen = original.convert("RGB")  # descarta la transparencia de los PNG
@@ -46,7 +53,7 @@ def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
 def _codificar(imagen: Image.Image, formato: str, **opciones) -> str:
     salida = io.BytesIO()
     imagen.save(salida, formato, **opciones)
-    return base64.b64encode(salida.getvalue()).decode()
+    return _base64(salida.getvalue())
 
 
 def _saturado(error: Exception) -> bool:
@@ -69,12 +76,11 @@ def _pdf_base64(ruta: pathlib.Path) -> str:
     """Un PDF se envía tal cual; una foto se convierte a un PDF de una página (el plugin no lee un JPEG directo)."""
     if ruta.suffix.lower() != ".pdf":
         return _codificar(_cargar(ruta, LADO_MAXIMO_MISTRAL), "PDF", resolution=150)
-    if not ruta.is_file():
-        raise OcrError(f"El archivo no existe: {ruta}")
+    _exigir_archivo(ruta)
     contenido = ruta.read_bytes()
     if not contenido.startswith(b"%PDF"):
         raise OcrError(f"{ruta.name} no es un PDF válido")
-    return base64.b64encode(contenido).decode()
+    return _base64(contenido)
 
 
 def leer_archivo_mistral(

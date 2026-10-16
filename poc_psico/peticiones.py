@@ -1,7 +1,9 @@
-"""POST a OpenRouter con los errores del flujo; lo comparten el guardrail, el decisor JEV y la búsqueda de guías."""
+"""POST a OpenRouter con los errores del flujo; lo comparten el guardrail, el decisor JEV, la búsqueda de guías y el OCR."""
 import requests
 
 from .errores import FlujoDetenido
+
+URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def post_openrouter(

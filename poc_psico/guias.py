@@ -17,9 +17,8 @@ from pydantic import BaseModel, Field
 
 from .errores import FlujoDetenido
 from .guardrail import MODELO_DECISIONS, URL_DECISIONS
-from .ocr import URL_OPENROUTER
-from .peticiones import post_openrouter
-from .reintentos import con_reintentos_503, invocar_estructurado
+from .peticiones import URL_OPENROUTER, post_openrouter
+from .reintentos import con_reintentos_503, estructurar, invocar_estructurado
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +82,7 @@ Reglas:
 
 
 def crear_decisor_fuentes(llm, esperar=time.sleep):
-    estructurado = llm.with_structured_output(DecisionFuentes, method="function_calling")
+    estructurado = estructurar(llm, DecisionFuentes)
 
     def decidir(candidatos: list, sintomas: dict, guias_imss: list) -> DecisionFuentes:
         contexto = {
