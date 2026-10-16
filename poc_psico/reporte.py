@@ -1,4 +1,6 @@
 """Validación de hipótesis contra las tools y renderizado del reporte en Markdown."""
+import re
+import unicodedata
 from datetime import date
 
 from .esquemas import ReporteClinico
@@ -35,6 +37,31 @@ ETIQUETAS_GUIAS = {
 }
 
 
+def _normalizar(texto: str) -> str:
+    sin_acentos = "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+    return " ".join(re.sub(r"\W+", " ", sin_acentos.lower()).split())
+
+
+def validar_pruebas(pruebas: list, guias: list):
+    """Una prueba queda respaldada solo si la guía existe y su extracto contiene la cita literal que dio el LLM.
+
+    La liga sale de la guía, nunca del LLM. Devuelve ([{nombre, motivo, guia|None, cita}], advertencias)."""
+    por_id = {g["id"]: g for g in guias or [] if g.get("id")}
+    finales, advertencias = [], []
+    for p in pruebas:
+        guia, cita = None, (p.cita_textual or "").strip()
+        if p.fuente_id:
+            candidata = por_id.get(p.fuente_id)
+            if candidata is None:
+                advertencias.append(f"La prueba {p.nombre} citó la guía {p.fuente_id}, que no existe: queda sin referencia")
+            elif not cita or _normalizar(cita) not in _normalizar(candidata.get("extracto", "")):
+                advertencias.append(f"La cita de la prueba {p.nombre} no aparece en la guía {p.fuente_id}: queda sin referencia")
+            else:
+                guia = candidata
+        finales.append({"nombre": p.nombre, "motivo": p.motivo, "guia": guia, "cita": cita if guia else ""})
+    return finales, advertencias
+
+
 def _mayuscula_inicial(texto: str) -> str:
     texto = texto.strip()
     return texto[:1].upper() + texto[1:]
@@ -44,8 +71,16 @@ def _lista(items, vacio="Ninguno identificado") -> str:
     return "\n".join(f"- {_mayuscula_inicial(i)}" for i in items) if items else f"- {vacio}"
 
 
+def _linea_prueba(p: dict, hay_guias: bool) -> str:
+    base = f"- **{_mayuscula_inicial(p['nombre'])}**: {_mayuscula_inicial(p['motivo'])}"
+    if p["guia"]:
+        return f"{base} · Referencia: [{p['guia']['titulo']}]({p['guia']['url']}) — «{p['cita']}»"
+    return f"{base} · _(sin referencia en las guías consultadas)_" if hay_guias else base
+
+
 def render_markdown(
-    sintomas: dict, hipotesis: list, reporte: ReporteClinico, alternativas: list, fecha: date, guias: list | None = None
+    sintomas: dict, hipotesis: list, reporte: ReporteClinico, alternativas: list, fecha: date, guias: list | None = None,
+    pruebas: list | None = None,
 ) -> str:
     partes = [
         "# Reporte de apoyo al psicodiagnóstico",
@@ -89,7 +124,9 @@ def render_markdown(
         "## 6. Pruebas complementarias sugeridas",
         "> Sugerencias a validar por el profesional. Solo se indica el nombre de la prueba: no se incluyen cuestionarios ni formas de calificación.",
     ]
-    partes += [f"- **{_mayuscula_inicial(p.nombre)}**: {_mayuscula_inicial(p.motivo)}" for p in reporte.pruebas] or ["- Ninguna sugerida"]
+    if pruebas is None:
+        pruebas, _ = validar_pruebas(reporte.pruebas, guias)
+    partes += [_linea_prueba(p, bool(guias)) for p in pruebas] or ["- Ninguna sugerida"]
     if guias:
         partes += ["### Guías clínicas consultadas", "> Referencias para consulta del profesional; el sistema no recomienda tratamientos."]
         for tipo, etiqueta in ETIQUETAS_GUIAS.items():

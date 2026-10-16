@@ -142,3 +142,23 @@ def test_si_el_modelo_sigue_fallando_se_hacen_todos_los_intentos_reales_y_se_pro
     with pytest.raises(ValidationError):
         crear_redactor(llm, esperar=lambda s: None)({}, [], [], "")
     assert len(llm.peticiones) == 3
+
+
+GUIAS = [{"id": "G1", "titulo": "Evaluación", "url": "https://www.apa.org/e", "cita": "c", "tipo": "evaluacion",
+          "extracto": "El PHQ-9 se recomienda para medir la severidad."}]
+
+
+def test_el_redactor_recibe_id_titulo_y_extracto_de_las_guias_pero_no_sus_urls():
+    llm = LLMFalso(ReporteClinico(hipotesis=[]))
+    crear_redactor(llm)({}, [], [], "", GUIAS)
+    sistema, humano = llm.estructurado.llamadas[0][0][1], llm.estructurado.llamadas[0][1][1]
+    enviado = json.loads(humano)["guias"]
+    assert enviado == [{"id": "G1", "titulo": "Evaluación", "extracto": "El PHQ-9 se recomienda para medir la severidad."}]
+    assert "https://www.apa.org" not in humano
+    assert "fuente_id" in llm.estructurado.llamadas[0][0][1] and "datos" in llm.estructurado.llamadas[0][0][1]
+
+
+def test_sin_guias_el_redactor_no_envia_la_clave_guias():
+    llm = LLMFalso(ReporteClinico(hipotesis=[]))
+    crear_redactor(llm)({}, [], [], "")
+    assert "guias" not in json.loads(llm.estructurado.llamadas[0][1][1])

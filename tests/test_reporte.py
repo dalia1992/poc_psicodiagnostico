@@ -1,7 +1,7 @@
 from datetime import date
 
 from poc_psico.esquemas import HipotesisRedactada, PruebaSugerida, ReporteClinico
-from poc_psico.reporte import render_markdown, validar_hipotesis
+from poc_psico.reporte import render_markdown, validar_hipotesis, validar_pruebas
 
 CANDIDATOS = [
     {
@@ -149,3 +149,55 @@ def test_si_solo_hay_un_tipo_no_aparecen_los_otros_encabezados():
 
 def test_sin_guias_no_hay_seccion_de_guias():
     assert "Guías clínicas" not in render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15))
+
+
+GUIA_G1 = {"id": "G1", "titulo": "Evaluación de depresión", "url": "https://www.apa.org/e", "cita": "", "tipo": "evaluacion",
+           "extracto": "Los instrumentos como el PHQ-9 y el Beck Depression Inventory miden la severidad."}
+
+
+def prueba(**kw):
+    return PruebaSugerida(nombre="PHQ-9", motivo="Medir severidad", **kw)
+
+
+def test_una_prueba_con_cita_literal_en_el_extracto_queda_respaldada_con_la_liga_de_la_guia():
+    validadas, adv = validar_pruebas([prueba(fuente_id="G1", cita_textual="el PHQ-9 y el Beck Depression Inventory")], [GUIA_G1])
+    assert validadas[0]["guia"]["url"] == "https://www.apa.org/e" and adv == []
+
+
+def test_la_cita_se_compara_sin_importar_mayusculas_acentos_ni_espacios():
+    validadas, _ = validar_pruebas([prueba(fuente_id="G1", cita_textual="LOS  instrumentos   como el phq-9")], [GUIA_G1])
+    assert validadas[0]["guia"] is not None
+
+
+def test_una_cita_inventada_deja_la_prueba_sin_respaldo_y_avisa():
+    validadas, adv = validar_pruebas([prueba(fuente_id="G1", cita_textual="el PHQ-9 cura la depresión")], [GUIA_G1])
+    assert validadas[0]["guia"] is None and any("PHQ-9" in a for a in adv)
+
+
+def test_un_id_inexistente_deja_la_prueba_sin_respaldo_y_avisa():
+    validadas, adv = validar_pruebas([prueba(fuente_id="G9", cita_textual="PHQ-9")], [GUIA_G1])
+    assert validadas[0]["guia"] is None and adv
+
+
+def test_una_prueba_sin_fuente_queda_sin_respaldo_sin_advertencia():
+    validadas, adv = validar_pruebas([prueba()], [GUIA_G1])
+    assert validadas[0]["guia"] is None and adv == []
+
+
+def test_el_reporte_muestra_la_liga_de_la_prueba_respaldada_y_marca_las_demas():
+    pruebas = [prueba(fuente_id="G1", cita_textual="el PHQ-9"), PruebaSugerida(nombre="Escala X", motivo="Otra")]
+    rep = reporte_base(pruebas=pruebas)
+    md = render_markdown(SINTOMAS, [], rep, [], date(2026, 10, 15), [GUIA_G1])
+    lineas = {l for l in md.splitlines() if l.startswith("- **")}
+    phq = next(l for l in lineas if "PHQ-9" in l)
+    assert "[Evaluación de depresión](https://www.apa.org/e)" in phq and "el PHQ-9" in phq
+    assert "sin referencia en las guías consultadas" in next(l for l in lineas if "Escala X" in l)
+
+
+def test_sin_guias_ninguna_prueba_lleva_la_marca_de_sin_referencia():
+    md = render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15))
+    assert "sin referencia" not in md
+
+
+def test_con_lista_de_guias_vacia_tampoco_se_marcan_las_pruebas():
+    assert "sin referencia" not in render_markdown(SINTOMAS, [], reporte_base(), [], date(2026, 10, 15), [])

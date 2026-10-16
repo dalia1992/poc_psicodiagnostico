@@ -184,3 +184,15 @@ def test_si_una_busqueda_falla_falla_todo_para_no_dar_guias_a_medias():
     post = PostFalso(respuesta_con(cita("https://www.apa.org/g")), RespuestaFalsa(402, texto="sin créditos"))
     with pytest.raises(FlujoDetenido, match="402"):
         buscar_guias_apa(CANDIDATOS, "clave", post=post)
+
+
+def test_cada_guia_trae_id_secuencial_y_extracto_largo_ademas_de_la_cita_corta():
+    largo = "Beck Depression Inventory. " * 200
+    post = PostFalso(
+        respuesta_con(cita("https://www.apa.org/a", "A", largo)), respuesta_con(), respuesta_con(),
+        respuesta_con(cita("https://www.who.int/b", "B", "texto corto")),
+    )
+    guias = buscar_guias_apa(CANDIDATOS, "clave", post=post)
+    assert [g["id"] for g in guias] == ["G1", "G2"]
+    assert 300 < len(guias[0]["extracto"]) <= 2500 and len(guias[0]["cita"]) <= 300
+    assert guias[1]["extracto"] == "texto corto"

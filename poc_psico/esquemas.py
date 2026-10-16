@@ -49,6 +49,14 @@ class HipotesisRedactada(BaseModel):
 class PruebaSugerida(BaseModel):
     nombre: str = Field(description="Solo el nombre de la prueba, por ejemplo Inventario de Ansiedad de Beck")
     motivo: str = Field(description="Una frase sobre por qué sería útil para este caso")
+    fuente_id: Optional[str] = Field(
+        default=None,
+        description="Id (G1, G2...) de la guía recibida cuyo extracto menciona esta prueba; null si ninguna la menciona",
+    )
+    cita_textual: Optional[str] = Field(
+        default=None,
+        description="Fragmento copiado literalmente del extracto de esa guía donde aparece la prueba (máximo 200 caracteres); null si no hay fuente",
+    )
 
 
 class ReporteClinico(BaseModel):

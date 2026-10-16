@@ -13,7 +13,7 @@ from .esquemas import ReporteClinico, SintomasPaciente
 from .guardrail import pasa_guardrail
 from .ocr import es_imagen
 from .pii import MapaPII, anonimizar
-from .reporte import render_markdown, validar_hipotesis
+from .reporte import render_markdown, validar_hipotesis, validar_pruebas
 from .traza import contar_errores, contar_rondas, ensamblar_candidatos, extraer_traza, resumen_traza, texto_final
 
 
@@ -39,7 +39,7 @@ class Componentes:
     guardrail: Callable[[str], float]
     extraer: Callable[[str], dict]
     busqueda_cie11: Callable[[dict], Awaitable[list]]
-    redactar: Callable[[dict, list, list, str], ReporteClinico]
+    redactar: Callable[..., ReporteClinico]  # (sintomas, candidatos, alternativas, notas, guias)
     umbral: float = 0.5
     fecha: Callable[[], date] = date.today
     ocr: Callable[[str], str] | None = None  # ruta de foto -> texto; solo si la entrada es una foto
@@ -102,15 +102,17 @@ def construir_workflow(c: Componentes, metricas: dict):
     def nodo_reporte(estado: Estado) -> dict:
         with _cronometro(metricas, "reporte"):
             reporte = c.redactar(
-                estado["sintomas"], estado["candidatos"], estado["alternativas"], estado["notas_busqueda_cie11"]
+                estado["sintomas"], estado["candidatos"], estado["alternativas"], estado["notas_busqueda_cie11"],
+                estado.get("guias") or [],
             )
         hipotesis, advertencias = validar_hipotesis(reporte, estado["candidatos"])
         if not hipotesis:
             raise FlujoDetenido("El reporte no contiene hipótesis con código obtenido de las tools")
+        pruebas, adv_pruebas = validar_pruebas(reporte.pruebas, estado.get("guias") or [])
         markdown = render_markdown(
-            estado["sintomas"], hipotesis, reporte, estado["alternativas"], c.fecha(), estado.get("guias")
+            estado["sintomas"], hipotesis, reporte, estado["alternativas"], c.fecha(), estado.get("guias"), pruebas
         )
-        return {"reporte_md": markdown, "advertencias": estado.get("advertencias", []) + advertencias}
+        return {"reporte_md": markdown, "advertencias": estado.get("advertencias", []) + advertencias + adv_pruebas}
 
     grafo = StateGraph(Estado)
     grafo.add_node("guardrail", nodo_guardrail)

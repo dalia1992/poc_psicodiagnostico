@@ -16,6 +16,7 @@ from .reintentos import con_reintentos_503
 MAX_RESULTADOS = 3
 MAX_CANDIDATOS = 3
 MAX_CITA = 300
+MAX_EXTRACTO = 2500  # lo que ve el redactor de cada guía; la cita corta del reporte es MAX_CITA
 PIE_ES_EN = (
     " Prefiere páginas en español; si no hay, usa las de inglés (traduce los nombres de los trastornos al inglés para "
     "buscarlas). Responde en dos frases y cita siempre las fuentes."
@@ -78,8 +79,10 @@ def solo_dominios(anotaciones: list, dominios: list) -> list:
         if not _dominio_permitido(url, dominios) or url in vistas:
             continue
         vistas.add(url)
-        cita = " ".join(re.sub(r"(?m)^#+\s*|\s*\.\.\.\s*", " ", d.get("content") or "").split())[:MAX_CITA]
-        guias.append({"titulo": " ".join((d.get("title") or url).split()), "url": url, "cita": cita})
+        extracto = " ".join(re.sub(r"(?m)^#+\s*|\s*\.\.\.\s*", " ", d.get("content") or "").split())[:MAX_EXTRACTO]
+        guias.append(
+            {"titulo": " ".join((d.get("title") or url).split()), "url": url, "cita": extracto[:MAX_CITA], "extracto": extracto}
+        )
     return guias
 
 
@@ -100,7 +103,7 @@ def buscar_guias_apa(
         for g in _buscar(enunciado.format(temas=temas) + pie, [dominio], plugin, cabeceras, post, url, modelo, timeout, esperar):
             if g["url"] not in vistas:
                 vistas.add(g["url"])
-                guias.append({**g, "tipo": tipo})
+                guias.append({**g, "tipo": tipo, "id": f"G{len(guias) + 1}"})
     return guias
 
 

@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from poc_psico.errores import FlujoDetenido
-from poc_psico.esquemas import HipotesisRedactada, ReporteClinico
+from poc_psico.esquemas import HipotesisRedactada, PruebaSugerida, ReporteClinico
 from poc_psico.grafo import Componentes, ejecutar
 from tests.helpers import mensajes_con_error, mensajes_exitosos, mensajes_sin_resultados
 
@@ -48,8 +48,9 @@ def construir(espia=None, **sobre):
         espia.registrar("busqueda_cie11", sintomas)
         return mensajes_exitosos()
 
-    def redactar(sintomas, candidatos, alternativas, notas):
+    def redactar(sintomas, candidatos, alternativas, notas, guias=None):
         espia.registrar("redactar", sintomas, candidatos, alternativas, notas)
+        espia.guias_al_redactor = guias
         return ReporteClinico(hipotesis=[HipotesisRedactada(codigo="6A70", justificacion="Tristeza persistente.")],
                               datos_faltantes=["Duración"])
 
@@ -87,7 +88,7 @@ async def test_el_nombre_se_reinserta_al_final_en_el_reporte():
 
 
 async def test_placeholder_inventado_se_deja_y_se_advierte():
-    c, _ = construir(redactar=lambda s, ca, al, n: ReporteClinico(
+    c, _ = construir(redactar=lambda s, ca, al, n, g=None: ReporteClinico(
         hipotesis=[HipotesisRedactada(codigo="6A70", justificacion="Según [PER_9] hay tristeza.")]))
     r = await ejecutar(ENTRADA, c)
     assert "[PER_9]" in r["reporte_md"]
@@ -157,7 +158,7 @@ async def test_si_las_tools_fallan_la_razon_lo_dice():
 
 
 async def test_el_reporte_con_solo_codigos_inventados_detiene_el_flujo():
-    c, _ = construir(redactar=lambda s, ca, al, n: ReporteClinico(
+    c, _ = construir(redactar=lambda s, ca, al, n, g=None: ReporteClinico(
         hipotesis=[HipotesisRedactada(codigo="9Z99", justificacion="inventada")]))
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "error" and "hipótesis" in r["razon"].lower()
@@ -266,3 +267,21 @@ async def test_sin_componente_de_guias_el_flujo_no_cambia():
     r = await ejecutar(ENTRADA, c)
     assert r["estado_final"] == "ok" and r["guias"] == [] and "Guías clínicas" not in r["reporte_md"]
     assert "guias" not in r["latencias"]
+
+
+async def test_el_redactor_recibe_las_guias_con_id_y_las_pruebas_respaldadas_llevan_su_liga():
+    guias = [{"id": "G1", "titulo": "Evaluación", "url": "https://www.apa.org/e", "cita": "", "tipo": "evaluacion",
+              "extracto": "Se recomienda el PHQ-9 para medir severidad."}]
+
+    def redactar(s, ca, al, n, g=None):
+        redactar.recibidas = g
+        return ReporteClinico(
+            hipotesis=[HipotesisRedactada(codigo="6A70", justificacion="Tristeza.")],
+            pruebas=[PruebaSugerida(nombre="PHQ-9", motivo="Severidad", fuente_id="G1", cita_textual="el PHQ-9"),
+                     PruebaSugerida(nombre="Inventada", motivo="x", fuente_id="G1", cita_textual="no está en la guía")])
+
+    c, _ = construir(guias=lambda candidatos: guias, redactar=redactar)
+    r = await ejecutar(ENTRADA, c)
+    assert [x["id"] for x in redactar.recibidas] == ["G1"]
+    assert "[Evaluación](https://www.apa.org/e)" in r["reporte_md"]
+    assert any("Inventada" in a for a in r["advertencias"])
