@@ -211,11 +211,11 @@ async def test_con_texto_no_se_usa_el_ocr_y_texto_ocr_queda_vacio():
 
 async def test_si_el_ocr_falla_el_flujo_se_detiene_sin_llamar_a_nada_mas():
     def ocr(ruta):
-        raise FlujoDetenido("Ollama apagado")
+        raise FlujoDetenido("OCR no disponible")
 
     c, espia = construir(ocr=ocr)
     r = await ejecutar(FOTO, c)
-    assert r["estado_final"] == "error" and "Ollama apagado" in r["razon"]
+    assert r["estado_final"] == "error" and "OCR no disponible" in r["razon"]
     assert espia.llamadas == {"guardrail": 0, "extraer": 0, "busqueda_cie11": 0, "redactar": 0}
 
 

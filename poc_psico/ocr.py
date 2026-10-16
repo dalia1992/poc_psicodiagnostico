@@ -1,4 +1,4 @@
-"""OCR de notas manuscritas: Mistral OCR vía OpenRouter (rápido; la foto sale a esos servicios) o un VLM local con Ollama (la foto no sale del equipo)."""
+"""OCR de notas manuscritas con Mistral OCR vía OpenRouter (la foto sale a esos servicios sin anonimizar)."""
 import base64
 import io
 import pathlib
@@ -12,19 +12,12 @@ from .errores import FlujoDetenido
 from .peticiones import post_openrouter
 from .reintentos import con_reintentos_503
 
-URL_OLLAMA = "http://localhost:11434/api/chat"
-MODELO_OCR = "qwen2.5vl:3b"
-LADO_MAXIMO = 1280  # píxeles; con más resolución el modelo tarda y ocupa más RAM sin leer mejor (spike 2026-10-13)
 EXTENSIONES = {".jpg", ".jpeg", ".png"}
 URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 # El plugin file-parser solo parsea PDF (un JPEG directo responde 200 sin texto). El modelo de chat solo acompaña
 # la petición: su respuesta se ignora y max_tokens bajo evita esperar su generación (spike 2026-10-14).
 MODELO_ACOMPANANTE = "openai/gpt-4o-mini"
 LADO_MAXIMO_MISTRAL = 2000
-INSTRUCCION = (
-    "Transcribe literalmente el texto manuscrito en español de esta imagen. "
-    "Responde solo con la transcripción, sin comentarios."
-)
 
 
 class OcrError(FlujoDetenido):
@@ -53,36 +46,6 @@ def _codificar(imagen: Image.Image, formato: str, **opciones) -> str:
     salida = io.BytesIO()
     imagen.save(salida, formato, **opciones)
     return base64.b64encode(salida.getvalue()).decode()
-
-
-def _preparar(ruta: pathlib.Path) -> str:
-    return _codificar(_cargar(ruta, LADO_MAXIMO), "JPEG", quality=90)
-
-
-def leer_imagen(ruta, modelo=MODELO_OCR, post=requests.post, url=URL_OLLAMA, timeout=300) -> str:
-    """Transcribe la foto con el modelo local. `keep_alive: 0` lo descarga de memoria al terminar (8 GB de RAM)."""
-    payload = {
-        "model": modelo,
-        "stream": False,
-        "keep_alive": 0,
-        "options": {"temperature": 0},
-        "messages": [{"role": "user", "content": INSTRUCCION, "images": [_preparar(pathlib.Path(ruta))]}],
-    }
-    try:
-        r = post(url, json=payload, timeout=timeout)
-    except requests.RequestException as e:
-        raise OcrError(f"No se pudo conectar con Ollama en {url}: arranca el servicio con `ollama serve` ({e})") from e
-    if r.status_code == 404:
-        raise OcrError(f"Ollama no tiene el modelo {modelo}: descárgalo con `ollama pull {modelo}`")
-    if r.status_code != 200:
-        raise OcrError(f"Ollama respondió {r.status_code}: {r.text[:200]}")
-    try:
-        texto = r.json()["message"]["content"].strip()
-    except (KeyError, TypeError, ValueError) as e:
-        raise OcrError("Ollama devolvió un formato inesperado de respuesta") from e
-    if not texto:
-        raise OcrError("No se pudo leer texto en la imagen: la transcripción salió vacía")
-    return texto
 
 
 def _saturado(error: Exception) -> bool:

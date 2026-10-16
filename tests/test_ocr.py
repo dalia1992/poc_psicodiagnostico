@@ -6,7 +6,7 @@ import requests
 from PIL import Image
 
 from poc_psico.errores import FlujoDetenido
-from poc_psico.ocr import MODELO_OCR, OcrError, es_imagen, leer_imagen, leer_imagen_mistral
+from poc_psico.ocr import OcrError, es_imagen, leer_imagen_mistral
 
 
 class Respuesta:
@@ -15,10 +15,6 @@ class Respuesta:
 
     def json(self):
         return self._cuerpo
-
-
-def ok(texto):
-    return Respuesta(200, {"message": {"content": texto}})
 
 
 @pytest.fixture
@@ -36,79 +32,11 @@ def test_es_imagen_reconoce_rutas_de_foto_y_no_texto_clinico():
     assert not es_imagen("")
 
 
-def test_leer_imagen_devuelve_el_texto_sin_espacios_sobrantes(foto):
-    assert leer_imagen(foto, post=lambda *a, **k: ok("  Lucía 28 años\n")) == "Lucía 28 años"
-
-
-def test_leer_imagen_envia_una_imagen_reducida_al_modelo_local_y_lo_descarga_de_memoria(foto):
-    visto = {}
-
-    def post(url, json, timeout):
-        visto.update(url=url, json=json)
-        return ok("texto")
-
-    leer_imagen(foto, post=post)
-    cuerpo = visto["json"]
-    assert visto["url"].startswith("http://localhost:11434")
-    assert cuerpo["model"] == MODELO_OCR and cuerpo["stream"] is False
-    assert cuerpo["keep_alive"] == 0
-    assert cuerpo["options"]["temperature"] == 0
-    (imagen,) = cuerpo["messages"][0]["images"]
-    enviada = Image.open(io.BytesIO(base64.b64decode(imagen)))
-    assert max(enviada.size) == 1280
-
-
-def test_leer_imagen_acepta_png_con_transparencia(tmp_path):
-    ruta = tmp_path / "nota.png"
-    Image.new("RGBA", (200, 100), (255, 255, 255, 0)).save(ruta)
-    assert leer_imagen(ruta, post=lambda *a, **k: ok("hola")) == "hola"
-
-
-def test_archivo_inexistente_detiene_el_flujo(tmp_path):
-    with pytest.raises(OcrError, match="no existe"):
-        leer_imagen(tmp_path / "nada.jpg", post=lambda *a, **k: ok("x"))
-
-
-def test_archivo_que_no_es_imagen_detiene_el_flujo(tmp_path):
-    ruta = tmp_path / "roto.jpg"
-    ruta.write_text("esto no es una imagen")
-    with pytest.raises(OcrError, match="imagen"):
-        leer_imagen(ruta, post=lambda *a, **k: ok("x"))
-
-
-def test_ollama_apagado_dice_como_arrancarlo(foto):
-    def post(*a, **k):
-        raise requests.ConnectionError("rechazada")
-
-    with pytest.raises(OcrError, match="ollama serve"):
-        leer_imagen(foto, post=post)
-
-
-def test_modelo_no_instalado_dice_el_comando_para_descargarlo(foto):
-    with pytest.raises(OcrError, match=f"ollama pull {MODELO_OCR}"):
-        leer_imagen(foto, post=lambda *a, **k: Respuesta(404, texto="model not found"))
-
-
-def test_otro_error_http_se_reporta_con_su_codigo(foto):
-    with pytest.raises(OcrError, match="500"):
-        leer_imagen(foto, post=lambda *a, **k: Respuesta(500, texto="boom"))
-
-
-def test_texto_vacio_detiene_el_flujo_y_no_inventa(foto):
-    with pytest.raises(OcrError, match="No se pudo leer texto"):
-        leer_imagen(foto, post=lambda *a, **k: ok("   "))
-
-
-def test_respuesta_sin_el_formato_esperado_detiene_el_flujo(foto):
-    with pytest.raises(OcrError, match="formato"):
-        leer_imagen(foto, post=lambda *a, **k: Respuesta(200, {"otra": 1}))
-
-
 def test_ocr_error_es_un_flujo_detenido():
     assert issubclass(OcrError, FlujoDetenido)
 
 
-# --- Mistral OCR vía OpenRouter (plugin file-parser; solo parsea PDF, así que la foto se convierte) ---
+# Mistral OCR vía OpenRouter (plugin file-parser; solo parsea PDF, así que la foto se convierte)
 
 
 def anotada(texto):
@@ -190,3 +118,14 @@ def test_mistral_con_archivo_que_no_es_imagen_detiene_el_flujo(tmp_path):
     ruta.write_text("no es imagen")
     with pytest.raises(OcrError, match="imagen"):
         leer_imagen_mistral(ruta, "k", post=lambda *a, **k: anotada("x"))
+
+
+def test_mistral_con_archivo_inexistente_detiene_el_flujo(tmp_path):
+    with pytest.raises(OcrError, match="no existe"):
+        leer_imagen_mistral(tmp_path / "nada.jpg", "k", post=lambda *a, **k: anotada("x"))
+
+
+def test_mistral_acepta_png_con_transparencia(tmp_path):
+    ruta = tmp_path / "nota.png"
+    Image.new("RGBA", (200, 100), (255, 255, 255, 0)).save(ruta)
+    assert leer_imagen_mistral(ruta, "k", post=lambda *a, **k: anotada("hola")) == "hola"
