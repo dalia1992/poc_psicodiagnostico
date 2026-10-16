@@ -115,11 +115,7 @@ Dos pruebas se omiten hasta que existan los fixtures reales de `scripts/spike_gu
 
 ## Qué editar
 
-Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL del MCP, tools permitidas, prompt del agente, máximo de rondas del agente y casos de prueba. Los contratos (`poc_psico/esquemas.py`) y los prompts del extractor y del redactor (`poc_psico/nodos.py`) se editan en esos archivos. Para regenerar el notebook tras cambiar `scripts/build_notebook.py`:
-
-```bash
-~/.venvs/poc_psico/bin/python scripts/build_notebook.py
-```
+Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL del MCP, tools permitidas, prompt del agente, máximo de rondas del agente y casos de prueba. Los contratos (`poc_psico/esquemas.py`) y los prompts del extractor y del redactor (`poc_psico/nodos.py`) se editan en esos archivos. El notebook se edita directamente.
 
 ## Problemas frecuentes
 

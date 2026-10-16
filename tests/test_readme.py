@@ -22,7 +22,6 @@ def test_el_readme_cubre_colab_local_y_pruebas():
 def test_los_comandos_del_readme_existen_en_el_proyecto():
     texto = (RAIZ / "README.md").read_text(encoding="utf-8")
     mencionados = (
-        "scripts/build_notebook.py",
         "scripts/spike_guardrail.py",
         "scripts/spike_mcp.py",
         "poc_psico/esquemas.py",
