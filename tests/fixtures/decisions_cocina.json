@@ -1,16 +1,16 @@
 {
-  "model": "respan/span-01-lite-20260925",
+  "model": "typesafe/jev-1.14-20261014",
   "answers": {
     "es_clinico": {
       "type": "noul",
-      "noul": 0.014724707
+      "noul": 0.02
     }
   },
   "usage": {
-    "input_tokens": 79,
-    "output_tokens": 0,
-    "cost": 0
+    "input_tokens": 315,
+    "output_tokens": 23,
+    "cost": 1.323e-05
   },
-  "id": "gen-dec-1791751969-rni3dWuWPdmeNpsb0oQm",
-  "provider": "Respan"
+  "id": "gen-dec-1792118546-ObWMUbNctMntrPNnUsXd",
+  "provider": "TypeSafe"
 }

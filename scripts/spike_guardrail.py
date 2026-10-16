@@ -1,14 +1,17 @@
-"""Explora la Decisions API con span-01-lite. Uso: python scripts/spike_guardrail.py (lee OPENROUTER_API_KEY del .env o del entorno)"""
+"""Explora la Decisions API con JEV (typesafe). Uso: python scripts/spike_guardrail.py (lee OPENROUTER_API_KEY del .env o del entorno)"""
 import json
 import os
 import pathlib
 import sys
 
 import requests
-from dotenv import load_dotenv
 
-URL = "https://openrouter.ai/api/alpha/decisions"
-MODELO = "respan/span-01-lite:free"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from poc_psico.entorno import cargar_env  # noqa: E402
+from poc_psico.guardrail import MODELO_DECISIONS  # noqa: E402
+from poc_psico.peticiones import URL_DECISIONS  # noqa: E402
+
 FIXTURES = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
 TEXTOS = {
@@ -28,7 +31,7 @@ PREGUNTA = {
 
 
 def main() -> int:
-    load_dotenv(FIXTURES.parent.parent / ".env")
+    cargar_env()
     clave = os.environ.get("OPENROUTER_API_KEY")
     if not clave:
         print("Falta OPENROUTER_API_KEY: defínela en el archivo .env o en el entorno")
@@ -36,9 +39,9 @@ def main() -> int:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     codigo_salida = 0
     for nombre, texto in TEXTOS.items():
-        payload = {"model": MODELO, "state": texto, "questions": PREGUNTA}
+        payload = {"model": MODELO_DECISIONS, "state": texto, "questions": PREGUNTA}
         r = requests.post(
-            URL,
+            URL_DECISIONS,
             json=payload,
             headers={"Authorization": f"Bearer {clave}", "Content-Type": "application/json"},
             timeout=60,

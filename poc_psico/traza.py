@@ -49,19 +49,35 @@ def _id_final(uri) -> str:
     return m.group(1) if m else texto.split("/")[-1]
 
 
+def _url_navegable(item) -> str:
+    """Liga del navegador OMS a la entidad. Para residuales (.Y/.Z) el MCP devuelve '#unspecified'/'#other'
+    sin id, que abre la página general: se reconstruye con el id del padre desde uri_api."""
+    url = item.get("uri_navegable")
+    if not url:
+        return url
+    base, _, fragmento = url.partition("#")
+    if fragmento in ("unspecified", "other") and item.get("uri_api"):
+        return f"{base}#{_id_final(item['uri_api']).replace('/', '%2F')}"
+    return url
+
+
+def _resultados(traza, herramienta) -> list:
+    """Resultados (dict) de las llamadas exitosas a una herramienta."""
+    return [
+        p["resultado"] for p in traza
+        if p["herramienta"] == herramienta and not p["error"] and isinstance(p["resultado"], dict)
+    ]
+
+
 def ensamblar_candidatos(traza, max_alternativas: int = 10):
     """Candidato = entidad con código MMS y criterios consultados. Alternativa = código MMS sin criterios."""
-    mms, criterios = {}, {}
-    for paso in traza:
-        resultado = paso["resultado"]
-        if paso["error"] or not isinstance(resultado, dict):
-            continue
-        if paso["herramienta"] == HERRAMIENTA_MMS:
-            for item in resultado.get("resultados_mms") or []:
-                if item.get("codigo_oficial") and item.get("uri_api"):
-                    mms[_id_final(item["uri_api"])] = item
-        elif paso["herramienta"] == HERRAMIENTA_CRITERIOS and resultado.get("uri"):
-            criterios[_id_final(resultado["uri"])] = resultado
+    mms = {
+        _id_final(item["uri_api"]): item
+        for resultado in _resultados(traza, HERRAMIENTA_MMS)
+        for item in resultado.get("resultados_mms") or []
+        if item.get("codigo_oficial") and item.get("uri_api")
+    }
+    criterios = {_id_final(r["uri"]): r for r in _resultados(traza, HERRAMIENTA_CRITERIOS) if r.get("uri")}
 
     candidatos, codigos = [], set()
     for clave, c in criterios.items():
@@ -73,7 +89,7 @@ def ensamblar_candidatos(traza, max_alternativas: int = 10):
             {
                 "codigo": item["codigo_oficial"],
                 "titulo": _sin_html(c.get("titulo") or item.get("titulo")),
-                "url": item.get("uri_navegable"),
+                "url": _url_navegable(item),
                 "definicion": c.get("definicion") or "",
                 "inclusiones": c.get("inclusiones") or [],
                 "exclusiones": c.get("exclusiones") or [],
@@ -81,7 +97,7 @@ def ensamblar_candidatos(traza, max_alternativas: int = 10):
         )
 
     alternativas = [
-        {"codigo": i["codigo_oficial"], "titulo": _sin_html(i.get("titulo")), "url": i.get("uri_navegable")}
+        {"codigo": i["codigo_oficial"], "titulo": _sin_html(i.get("titulo")), "url": _url_navegable(i)}
         for clave, i in mms.items()
         if clave not in criterios and i["codigo_oficial"] not in codigos
     ]
@@ -108,15 +124,6 @@ def texto_final(mensajes) -> str:
 
 def resumen_traza(traza) -> str:
     """Resumen para diagnosticar por qué no hubo candidatos: códigos MMS recibidos y criterios consultados."""
-    n_mms = sum(
-        len(p["resultado"].get("resultados_mms") or [])
-        for p in traza
-        if p["herramienta"] == HERRAMIENTA_MMS and not p["error"] and isinstance(p["resultado"], dict)
-    )
-    ids = [
-        _id_final(p["resultado"]["uri"])
-        for p in traza
-        if p["herramienta"] == HERRAMIENTA_CRITERIOS and not p["error"]
-        and isinstance(p["resultado"], dict) and p["resultado"].get("uri")
-    ]
+    n_mms = sum(len(r.get("resultados_mms") or []) for r in _resultados(traza, HERRAMIENTA_MMS))
+    ids = [_id_final(r["uri"]) for r in _resultados(traza, HERRAMIENTA_CRITERIOS) if r.get("uri")]
     return f"{n_mms} código(s) MMS recibidos; criterios consultados: {ids}"

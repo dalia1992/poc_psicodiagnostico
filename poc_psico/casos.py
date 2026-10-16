@@ -44,9 +44,9 @@ CASOS = [
         "tipo": "fuera de contexto",
         "entrada": "¿Me recomiendas una receta de pan amasado para el fin de semana?",
         "esperado": "fuera_de_alcance; sin agente ni reporte",
-        "criterio": "estado_final == fuera_de_alcance, rondas_agente == 0, sin reporte",
+        "criterio": "estado_final == fuera_de_alcance, rondas_busqueda_cie11 == 0, sin reporte",
         "verificar": lambda r: (
-            r["estado_final"] == "fuera_de_alcance" and r["rondas_agente"] == 0 and r["reporte_md"] == ""
+            r["estado_final"] == "fuera_de_alcance" and r["rondas_busqueda_cie11"] == 0 and r["reporte_md"] == ""
         ),
     },
     {

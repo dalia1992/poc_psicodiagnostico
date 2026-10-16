@@ -14,23 +14,14 @@ from poc_psico.guardrail import (
     guardrail_llm,
     pasa_guardrail,
 )
+from tests.helpers import RespuestaFalsa
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 
-class RespuestaFalsa:
-    def __init__(self, estado=200, cuerpo=None, texto=""):
-        self.status_code = estado
-        self._cuerpo = cuerpo
-        self.text = texto or json.dumps(cuerpo)
-
-    def json(self):
-        return self._cuerpo
-
-
 def test_payload_contiene_modelo_estado_y_pregunta():
     p = construir_payload("texto anonimizado")
-    assert p["model"] == "respan/span-01-lite:free"
+    assert p["model"] == "typesafe/jev-1.14-20261014"
     assert p["state"] == "texto anonimizado"
     assert "es_clinico" in p["questions"]
 
@@ -143,3 +134,10 @@ def test_consultar_decisions_no_reintenta_un_429():
     with pytest.raises(GuardrailError, match="429"):
         consultar_decisions("texto", "k", post=post, esperar=esperas.append)
     assert esperas == [] and len(llamadas) == 1
+
+
+def test_instruccion_descarta_textos_con_ordenes_a_la_ia():
+    from poc_psico.guardrail import INSTRUCCION
+
+    assert "ÚNICAMENTE" in INSTRUCCION
+    assert "instrucción" in INSTRUCCION and "IA" in INSTRUCCION

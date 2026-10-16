@@ -1,9 +1,9 @@
 # PoC · Asistente de apoyo al psicodiagnóstico (LC-B + LC-C)
 
-Convierte una viñeta clínica en texto libre en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS) y datos faltantes.
+Convierte una viñeta clínica (texto libre, foto o PDF de una nota manuscrita) en un reporte Markdown con síntomas clasificados, hipótesis CIE-11 (código y liga a la OMS), datos faltantes, pruebas sugeridas y guías clínicas.
 
 ```
-(foto → OCR local) → texto → anonimizar (NER local) → guardrail (span-01-lite) → extraer síntomas → agente CIE-11 (MCP en Azure) → reporte
+(foto o PDF → OCR Mistral) → texto → anonimizar (NER local) → guardrail (JEV) → extraer síntomas → agente CIE-11 (MCP en Azure) → guías clínicas → reporte
 ```
 
 Los nombres, lugares y organizaciones se sustituyen por `[PER_1]`, `[LOC_1]`, `[ORG_1]` antes de llamar a cualquier servicio externo y se reinsertan al final, solo en el reporte.
@@ -72,24 +72,31 @@ Privacidad: en Colab el NER corre en la máquina virtual de Google, por lo que e
 6. Abre `PoC_psicodiagnostico.ipynb` y *Run → Run All Cells*. La celda 0.1 solo avisa que usas el entorno local; la 0.2 toma la carpeta actual. Los puntos de control son los mismos que en Colab. El CSV queda junto al notebook.
 7. **Si editas el paquete**, reinicia el kernel (*Kernel → Restart Kernel*).
 
-Privacidad: en local el NER corre en tu equipo y el texto original no sale de él.
+Privacidad: en local el NER corre en tu equipo y el texto original no sale de él (salvo una foto o un PDF: el OCR lo envía a OpenRouter y Mistral).
 
-## Foto de una nota manuscrita (OCR)
+## Guías clínicas (IMSS, APA y OMS)
 
-`ejecutar()` acepta la ruta de una foto `.jpg` o `.png` en lugar del texto. La foto se lee con OCR (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. El motor se elige en `OCR_MOTOR` (celda 2.1):
+Después de la búsqueda CIE-11, `poc_psico/guias.py` busca guías con el plugin `web` de OpenRouter, cada búsqueda restringida a un dominio con `include_domains` (el filtro lo aplica OpenRouter, no el prompt). **El IMSS (`imss.gob.mx`) se busca siempre primero.** Después **JEV** (`typesafe/jev-1.14-20261014`, Decisions API de OpenRouter, `crear_decisor_jev`) ve los títulos CIE-11, los datos clínicos que faltan (sin nombres) y los títulos de las guías del IMSS, y elige con una pregunta `choice` entre `apa`, `oms`, `ambas` o `ninguna`; responde en ~0.3 s por unos US$0.00002 y deja las probabilidades y la confianza en el `motivo`. Decide si hace falta buscar además en la **APA** (`apa.org`: evaluación, diagnóstico diferencial e intervención, en una sola búsqueda) y/o la **OMS** (`who.int`, incluye mhGAP). Si el IMSS basta, no se hacen más búsquedas. No hay reglas fijas: la decisión y su razón (`motivo`) quedan en cada guía adicional de `resultado["guias"]`. Si JEV falla, decide un LLM de respaldo (`crear_decisor_fuentes`, salida estructurada); si ese también falla, se conservan las guías del IMSS.
 
-| Motor | Tiempo del paso (mismo caso) | Error de caracteres | La foto... |
-|---|---|---|---|
-| `"mistral"` (predeterminado): Mistral OCR vía OpenRouter | unos 3 a 4 s | 13.9 % | **sale a OpenRouter y Mistral** con los nombres sin anonimizar |
-| `"local"`: `qwen2.5vl:3b` con [Ollama](https://ollama.com) | 38 a 53 s | 5.2 % | no sale de tu equipo; solo Jupyter local |
+El reporte añade la subsección *Guías clínicas consultadas*, agrupada por fuente (IMSS primero), con título, liga y una cita corta. Las búsquedas de APA y OMS prefieren páginas en español y usan las de inglés si no hay.
 
-Medido con una sola foto manuscrita sintética y una corrida por motor (M1 de 8 GB, 2026-10-14): son cifras de orientación, no una tasa de error. Mistral conservó la última línea que el local perdió, pero leyó el nombre en mayúsculas ("LUCTA" por "Lucía"); el NER lo partió en dos entidades y el reporte quedó con "LU" como nombre. No se filtra el nombre, pero **revisa el nombre y `r["texto_ocr"]`**: un error de lectura puede cambiar el sentido clínico.
+- **Privacidad:** a las búsquedas solo viajan los títulos de las entidades CIE-11 candidatas, nunca datos del paciente ni códigos.
+- **Seguridad:** el decisor solo elige la fuente (mapa fijo: `apa`, `oms`, `ambas`, `ninguna`); las consultas las arma el código y `_dominio_permitido` descarta cualquier liga fuera del dominio de esa búsqueda.
+- **IMSS:** sus guías usan códigos CIE-10 (F32, F33), no CIE-11, y la de depresión (clave IMSS-161-09) es de 2009: confirma su vigencia en el catálogo. Algunos títulos de los PDF salen genéricos (por ejemplo «Guía de práctica clínica»).
+- **Pruebas respaldadas:** el redactor recibe de cada guía su id, título y un extracto (hasta 2 500 caracteres) y, por cada prueba complementaria, indica `fuente_id` y copia una `cita_textual`. El código solo da por respaldada la prueba si esa cita aparece literalmente en el extracto de esa guía (sin distinguir mayúsculas ni acentos); entonces el reporte añade la liga de la guía, tomada de la guía y no del modelo. Si no, la prueba se muestra *sin referencia en las guías consultadas* y se añade una advertencia. Los extractos son texto web que entra a un LLM: se le indica tratarlos como datos y la salida es estructurada, pero no es una garantía total contra instrucciones inyectadas.
+- **Costo y tolerancia a fallas:** añade de 1 a 3 búsquedas por caso (unos US$0.008 cada una) más una llamada de decisión. Si una falla, el reporte sale sin guías y con una advertencia. Para desactivarlas pon `BUSCAR_GUIAS = False` en la celda 2.1.
 
-**Mistral OCR** solo necesita `OPENROUTER_API_KEY` y funciona también en Colab. La foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por foto más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
+## Foto o PDF de una nota manuscrita (OCR)
 
-**OCR local:** instala Ollama y descarga el modelo una vez (unos 3.2 GB): `ollama pull qwen2.5vl:3b`; deja el servicio activo (`ollama serve`). Con 8 GB de RAM ocupa unos 3.7 GB y se descarga solo al terminar (`keep_alive: 0`); no lo corras a la vez que el NER. PaddleOCR-VL con transformers saturó el swap en ese equipo y se descartó. **Con datos reales usa `"local"` y Jupyter local**: es el único motor que no envía la foto a terceros.
+`ejecutar()` acepta como entrada texto libre o la ruta de una foto `.jpg`/`.png` o de un `.pdf` (máximo 10 páginas). El archivo se lee con Mistral OCR vía OpenRouter (`poc_psico/ocr.py`) y el texto leído sigue el flujo normal. Solo necesita `OPENROUTER_API_KEY` y funciona también en Colab.
 
-Uso: en el notebook, celda 5.1, escribe la ruta en `RUTA_FOTO`; o desde Python: `await ejecutar("foto.jpg", componentes)`. Para medir tu caso: `scripts/spike_ocr.py foto.jpg transcripcion.txt` (motor local, con tiempo y tasa de error por carácter).
+> **El archivo sale a OpenRouter y Mistral con los nombres sin anonimizar**, porque se lee antes de anonimizar. Usa solo fotos o PDF de datos sintéticos o anonimizados.
+
+Tarda unos 3 a 4 s y tuvo un error de 13.9 % de caracteres en una sola foto manuscrita sintética (cifra de orientación, no una tasa de error). Leyó el nombre en mayúsculas ("LUCTA" por "Lucía"); el NER lo partió en dos entidades y el reporte quedó con "LU" como nombre. No se filtra el nombre, pero **revisa el nombre y `r["texto_ocr"]`**: un error de lectura puede cambiar el sentido clínico.
+
+Un PDF se envía tal cual; una foto se convierte a PDF de una página dentro del nodo, porque el plugin `file-parser` no lee un JPEG directo. Cuesta unos US$0.002 por página (foto o PDF; un PDF de más de 10 páginas se rechaza antes de llamar al servicio) más el modelo acompañante `openai/gpt-4o-mini` (centavos; su respuesta se ignora). El motor de parseo a veces responde `400 rate limited`: el nodo reintenta solo 3 veces (1, 2 y 4 s).
+
+Uso: en el notebook, celda 5.1, escribe la ruta en `RUTA_ARCHIVO`; o desde Python: `await ejecutar("foto.jpg", componentes)`. Para medir tu caso: `scripts/spike_ocr.py foto.jpg transcripcion.txt` (con tiempo y tasa de error por carácter).
 
 ## Pruebas unitarias
 
@@ -99,15 +106,11 @@ No necesitan claves ni red; usan componentes falsos.
 ~/.venvs/poc_psico/bin/python -m pytest -q
 ```
 
-Dos pruebas se omiten hasta que existan los fixtures reales de `scripts/spike_guardrail.py` y `scripts/spike_mcp.py` (necesitan `OPENROUTER_API_KEY` y acceso al MCP).
+Los fixtures reales de la Decisions API y del MCP están en `tests/fixtures/`; para regenerarlos corre `scripts/spike_guardrail.py` y `scripts/spike_mcp.py` (necesitan `OPENROUTER_API_KEY` y acceso al MCP).
 
 ## Qué editar
 
-Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL del MCP, tools permitidas, prompt del agente, máximo de rondas del agente y casos de prueba. Los contratos (`poc_psico/esquemas.py`) y los prompts del extractor y del redactor (`poc_psico/nodos.py`) se editan en esos archivos. Para regenerar el notebook tras cambiar `scripts/build_notebook.py`:
-
-```bash
-~/.venvs/poc_psico/bin/python scripts/build_notebook.py
-```
+Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL del MCP, tools permitidas, prompt del agente, máximo de rondas del agente y casos de prueba. Los contratos (`poc_psico/esquemas.py`) y los prompts del extractor y del redactor (`poc_psico/nodos.py`) se editan en esos archivos. El notebook se edita directamente.
 
 ## Problemas frecuentes
 
@@ -117,14 +120,12 @@ Solo las celdas marcadas `# EDITA AQUÍ` del notebook: umbral del guardrail, URL
 | `401` o `User not found` | La clave está mal copiada, o el secreto no tiene *Acceso del notebook* activado (Colab). |
 | El notebook te pide la clave por teclado | No encontró `OPENROUTER_API_KEY`: revisa que `.env` esté en la carpeta del proyecto (o que `POC_ENV_FILE` apunte a él) y que la línea no tenga espacios ni comillas de más. |
 | `429` o `rate limit` (también en el guardrail: `La Decisions API respondió 429`) | Superaste 20 llamadas por minuto o 50 por día; el límite diario cuenta modelos gratuitos y Decisions API juntos. Espera al día siguiente, o carga 10 créditos en OpenRouter para subir el límite a 1000 por día. El flujo falla cerrado: nunca deja pasar un texto sin guardrail. |
-| `503` o `system overload` | El servicio está sobrecargado. El guardrail, el extractor, el redactor y las llamadas del agente al modelo reintentan solos 3 veces, esperando 1, 2 y 4 segundos (`poc_psico/reintentos.py`); verás un aviso por cada reintento. Si persiste, el flujo se detiene con el error. |
-| `GuardrailError: Formato inesperado de la Decisions API` | La respuesta de `span-01-lite` no tiene la forma esperada: revisa `RUTA_PROB` en `poc_psico/guardrail.py` con `scripts/spike_guardrail.py`. Si no se resuelve, usa el plan B (`guardrail_llm`) en la celda 3.1. |
+| `503` o `system overload` | El servicio está sobrecargado. El guardrail, el extractor, el redactor, las llamadas del agente al modelo, la búsqueda de guías y Mistral OCR reintentan solos 3 veces, esperando 1, 2 y 4 segundos (`poc_psico/reintentos.py`); verás un aviso por cada reintento. Si persiste, el flujo se detiene con el error. |
+| `GuardrailError: Formato inesperado de la Decisions API` | La respuesta de JEV (`typesafe/jev-…`) no tiene la forma esperada: revisa `RUTA_PROB` en `poc_psico/guardrail.py` con `scripts/spike_guardrail.py`. Si no se resuelve, usa el plan B: en la celda 3.1 reemplaza `_guardrail` por `guardrail_llm(texto, llm.with_structured_output(ClasificacionClinica))` (ambos en `poc_psico/guardrail.py`). |
 | `No se pudo conectar al MCP CIE-11` | Comprueba `AGENT_MCP_URL`. Si el servicio de Azure estaba inactivo, la primera conexión puede tardar o fallar: reintenta. |
 | El agente no llama a las tools o responde con errores de formato | El modelo gratuito puede fallar en tool calling y ser lento. En la celda 1.1 usa `anthropic/claude-haiku-5.5` (el predeterminado del notebook) o cambia `MODEL_ID`, `base_url` y la clave por `gpt-4.1-mini` y `OPENAI_API_KEY`, y anótalo en la celda 6. |
 | `El agente alcanzó el tope de N pasos` | El agente ve en cada turno cuántas rondas lleva y cuántas le quedan, y al agotarse se le quitan las tools; si aun así llega al tope, sube `MAX_RONDAS` en la celda 2.1 o simplifica las tools permitidas. |
 | `No se identificaron síntomas en el texto` | La viñeta no describe síntomas; el flujo se detiene a propósito. |
-| `No se pudo conectar con Ollama` o `Ollama no tiene el modelo` | Arranca `ollama serve` o abre la app, y ejecuta `ollama pull qwen2.5vl:3b`. |
-| El equipo se pone lento durante el OCR | Cierra otras aplicaciones; el modelo necesita unos 4 GB libres. Si falla de nuevo, reduce `LADO_MAXIMO` en `poc_psico/ocr.py`. |
-| La entrada es una foto, pero no hay un componente OCR | `Componentes` no recibió `ocr=`: en el notebook se arma en la celda 3.1. |
+| La entrada es un archivo (foto o PDF), pero no hay un componente OCR | `Componentes` no recibió `ocr=`: en el notebook se arma en la celda 3.1. |
 | `OpenRouter respondió 400 ... rate limited` en el OCR | El motor de parseo de Mistral está saturado; el nodo ya reintentó 3 veces. Espera un minuto y repite. |
 | Tras editar un `.py` no cambia nada | Reinicia la sesión o el kernel. |

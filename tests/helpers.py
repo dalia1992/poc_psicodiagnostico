@@ -69,3 +69,17 @@ def mensajes_sin_resultados():
         ToolMessage(content=bloque({"resultados_mms": []}), name="icd11_buscar_codigo_mms", tool_call_id="c1"),
         AIMessage(content="No hay categoría para ese término."),
     ]
+
+
+class RespuestaFalsa:
+    """Respuesta HTTP de prueba. Si `cuerpo` es una excepción, .json() la lanza."""
+
+    def __init__(self, status=200, cuerpo=None, texto=None):
+        self.status_code, self._cuerpo = status, cuerpo
+        sin_cuerpo = cuerpo is None or isinstance(cuerpo, Exception)
+        self.text = texto if texto is not None else ("" if sin_cuerpo else json.dumps(cuerpo))
+
+    def json(self):
+        if isinstance(self._cuerpo, Exception):
+            raise self._cuerpo
+        return self._cuerpo

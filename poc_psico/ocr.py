@@ -1,4 +1,4 @@
-"""OCR de notas manuscritas: Mistral OCR vía OpenRouter (rápido; la foto sale a esos servicios) o un VLM local con Ollama (la foto no sale del equipo)."""
+"""OCR de notas manuscritas (foto o PDF) con Mistral OCR vía OpenRouter (el archivo sale a esos servicios sin anonimizar)."""
 import base64
 import io
 import pathlib
@@ -7,38 +7,43 @@ import time
 
 import requests
 from PIL import Image, UnidentifiedImageError
+from pypdf import PdfReader
+from pypdf.errors import PyPdfError
 
 from .errores import FlujoDetenido
+from .peticiones import URL_OPENROUTER, post_openrouter
+from .reintentos import con_reintentos_503
 
-URL_OLLAMA = "http://localhost:11434/api/chat"
-MODELO_OCR = "qwen2.5vl:3b"
-LADO_MAXIMO = 1280  # píxeles; con más resolución el modelo tarda y ocupa más RAM sin leer mejor (spike 2026-10-13)
-EXTENSIONES = {".jpg", ".jpeg", ".png"}
-URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
+EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png"}
+EXTENSIONES = EXTENSIONES_IMAGEN | {".pdf"}
 # El plugin file-parser solo parsea PDF (un JPEG directo responde 200 sin texto). El modelo de chat solo acompaña
 # la petición: su respuesta se ignora y max_tokens bajo evita esperar su generación (spike 2026-10-14).
 MODELO_ACOMPANANTE = "openai/gpt-4o-mini"
 LADO_MAXIMO_MISTRAL = 2000
-ESPERAS_SATURACION = (1, 2, 4)  # segundos; el motor de parseo responde 400 "rate limited" de forma intermitente
-INSTRUCCION = (
-    "Transcribe literalmente el texto manuscrito en español de esta imagen. "
-    "Responde solo con la transcripción, sin comentarios."
-)
+MAX_PAGINAS_PDF = 10
 
 
 class OcrError(FlujoDetenido):
-    """No se pudo leer la imagen; el flujo no continúa con texto inventado o incompleto."""
+    """No se pudo leer el archivo; el flujo no continúa con texto inventado o incompleto."""
 
 
-def es_imagen(entrada) -> bool:
-    """True si la entrada es la ruta de una foto y no una viñeta en texto."""
+def es_archivo(entrada) -> bool:
+    """True si la entrada es la ruta de una foto o un PDF y no una viñeta en texto."""
     texto = str(entrada).strip()
     return bool(texto) and "\n" not in texto and len(texto) < 500 and pathlib.Path(texto).suffix.lower() in EXTENSIONES
 
 
-def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
+def _exigir_archivo(ruta: pathlib.Path) -> None:
     if not ruta.is_file():
-        raise OcrError(f"El archivo de la foto no existe: {ruta}")
+        raise OcrError(f"El archivo no existe: {ruta}")
+
+
+def _base64(datos: bytes) -> str:
+    return base64.b64encode(datos).decode()
+
+
+def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
+    _exigir_archivo(ruta)
     try:
         with Image.open(ruta) as original:
             imagen = original.convert("RGB")  # descarta la transparencia de los PNG
@@ -51,41 +56,13 @@ def _cargar(ruta: pathlib.Path, lado: int) -> Image.Image:
 def _codificar(imagen: Image.Image, formato: str, **opciones) -> str:
     salida = io.BytesIO()
     imagen.save(salida, formato, **opciones)
-    return base64.b64encode(salida.getvalue()).decode()
+    return _base64(salida.getvalue())
 
 
-def _preparar(ruta: pathlib.Path) -> str:
-    return _codificar(_cargar(ruta, LADO_MAXIMO), "JPEG", quality=90)
-
-
-def leer_imagen(ruta, modelo=MODELO_OCR, post=requests.post, url=URL_OLLAMA, timeout=300) -> str:
-    """Transcribe la foto con el modelo local. `keep_alive: 0` lo descarga de memoria al terminar (8 GB de RAM)."""
-    payload = {
-        "model": modelo,
-        "stream": False,
-        "keep_alive": 0,
-        "options": {"temperature": 0},
-        "messages": [{"role": "user", "content": INSTRUCCION, "images": [_preparar(pathlib.Path(ruta))]}],
-    }
-    try:
-        r = post(url, json=payload, timeout=timeout)
-    except requests.RequestException as e:
-        raise OcrError(f"No se pudo conectar con Ollama en {url}: arranca el servicio con `ollama serve` ({e})") from e
-    if r.status_code == 404:
-        raise OcrError(f"Ollama no tiene el modelo {modelo}: descárgalo con `ollama pull {modelo}`")
-    if r.status_code != 200:
-        raise OcrError(f"Ollama respondió {r.status_code}: {r.text[:200]}")
-    try:
-        texto = r.json()["message"]["content"].strip()
-    except (KeyError, TypeError, ValueError) as e:
-        raise OcrError("Ollama devolvió un formato inesperado de respuesta") from e
-    if not texto:
-        raise OcrError("No se pudo leer texto en la imagen: la transcripción salió vacía")
-    return texto
-
-
-def _saturado(r) -> bool:
-    return r.status_code in (429, 503) or (r.status_code == 400 and "rate limit" in r.text.lower())
+def _saturado(error: Exception) -> bool:
+    """503, 429 o el 400 "rate limited" que el motor de parseo responde de forma intermitente (reintentos 1, 2 y 4 s)."""
+    codigo = getattr(error, "status_code", None)
+    return codigo in (429, 503) or (codigo == 400 and "rate limit" in str(error).lower())
 
 
 def _texto_de_anotaciones(respuesta: dict) -> str:
@@ -98,13 +75,28 @@ def _texto_de_anotaciones(respuesta: dict) -> str:
     return re.sub(r"</?file\b[^>]*>", "", "\n".join(partes)).strip()
 
 
-def leer_imagen_mistral(
+def _pdf_base64(ruta: pathlib.Path) -> str:
+    """Un PDF se envía tal cual; una foto se convierte a un PDF de una página (el plugin no lee un JPEG directo)."""
+    if ruta.suffix.lower() != ".pdf":
+        return _codificar(_cargar(ruta, LADO_MAXIMO_MISTRAL), "PDF", resolution=150)
+    _exigir_archivo(ruta)
+    contenido = ruta.read_bytes()
+    try:
+        paginas = len(PdfReader(io.BytesIO(contenido)).pages)
+    except (PyPdfError, ValueError, OSError) as e:
+        raise OcrError(f"{ruta.name} no es un PDF válido o está protegido: {e}") from e
+    if paginas > MAX_PAGINAS_PDF:
+        raise OcrError(f"{ruta.name} tiene {paginas} páginas: el máximo es {MAX_PAGINAS_PDF}")
+    return _base64(contenido)
+
+
+def leer_archivo_mistral(
     ruta, api_key, post=requests.post, url=URL_OPENROUTER, modelo=MODELO_ACOMPANANTE, timeout=120, esperar=time.sleep
 ) -> str:
-    """Transcribe la foto con Mistral OCR vía OpenRouter: la convierte a PDF de una página y lee las anotaciones."""
+    """Transcribe la foto o el PDF con Mistral OCR vía OpenRouter y lee las anotaciones de la respuesta."""
     if not api_key:
         raise OcrError("Falta OPENROUTER_API_KEY para usar Mistral OCR")
-    pdf = _codificar(_cargar(pathlib.Path(ruta), LADO_MAXIMO_MISTRAL), "PDF", resolution=150)
+    pdf = _pdf_base64(pathlib.Path(ruta))
     payload = {
         "model": modelo,
         "max_tokens": 16,
@@ -115,21 +107,18 @@ def leer_imagen_mistral(
         ]}],
         "plugins": [{"id": "file-parser", "pdf": {"engine": "mistral-ocr"}}],
     }
-    cabeceras = {"Authorization": f"Bearer {api_key}"}
-    for intento in range(len(ESPERAS_SATURACION) + 1):
-        try:
-            r = post(url, json=payload, headers=cabeceras, timeout=timeout)
-        except requests.RequestException as e:
-            raise OcrError(f"No se pudo conectar con OpenRouter: {e}") from e
-        if r.status_code == 200:
-            break
-        if not _saturado(r) or intento == len(ESPERAS_SATURACION):
-            raise OcrError(f"OpenRouter respondió {r.status_code}: {r.text[:200]}")
-        esperar(ESPERAS_SATURACION[intento])
+
+    def llamar():
+        return post_openrouter(
+            post, url, payload, api_key, timeout, error=OcrError, sin_conexion="No se pudo conectar con OpenRouter",
+            respondio="OpenRouter respondió {codigo}",
+        )
+
+    r = con_reintentos_503(llamar, esperar=esperar, reintentable=_saturado)
     try:
         texto = _texto_de_anotaciones(r.json())
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise OcrError("OpenRouter devolvió un formato inesperado de respuesta") from e
     if not texto:
-        raise OcrError("No se pudo leer texto en la imagen: Mistral OCR no devolvió texto")
+        raise OcrError("No se pudo leer texto en el archivo: Mistral OCR no devolvió texto")
     return texto

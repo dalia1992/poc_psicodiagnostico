@@ -1,15 +1,17 @@
-"""Prueba real del OCR local: lee una foto con Ollama y, si das la transcripción correcta, mide el error.
+"""Prueba real del OCR: lee una foto o un PDF con Mistral OCR (OpenRouter) y, si das la transcripción correcta, mide el error.
 
 Uso: ~/.venvs/poc_psico/bin/python scripts/spike_ocr.py foto.jpg [transcripcion.txt]
-Requiere `ollama serve` y `ollama pull qwen2.5vl:3b`. Solo datos sintéticos.
+Requiere OPENROUTER_API_KEY (del .env o del entorno). El archivo sale a OpenRouter y Mistral: solo datos sintéticos.
 """
+import os
 import pathlib
 import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from poc_psico.ocr import leer_imagen  # noqa: E402
+from poc_psico.entorno import cargar_env  # noqa: E402
+from poc_psico.ocr import leer_archivo_mistral  # noqa: E402
 
 
 def tasa_error_por_caracter(referencia: str, hipotesis: str) -> float:
@@ -25,8 +27,9 @@ def tasa_error_por_caracter(referencia: str, hipotesis: str) -> float:
 
 
 if __name__ == "__main__":
+    cargar_env()
     inicio = time.perf_counter()
-    texto = leer_imagen(sys.argv[1])
+    texto = leer_archivo_mistral(sys.argv[1], os.environ.get("OPENROUTER_API_KEY"))
     print(f"Tiempo: {time.perf_counter() - inicio:.1f} s")
     if len(sys.argv) > 2:
         referencia = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
