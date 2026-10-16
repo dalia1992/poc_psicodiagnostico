@@ -96,3 +96,26 @@ def test_pruebas_solo_nombre_y_motivo_con_aviso():
     seccion = md.split("## 6. Pruebas complementarias sugeridas")[1].split("## 7.")[0]
     assert "**Inventario de Depresión de Beck**: Cuantificar severidad" in seccion
     assert "a validar por el profesional" in seccion
+
+
+def test_todos_los_items_del_reporte_inician_en_mayuscula():
+    from datetime import date
+
+    from poc_psico.esquemas import ReporteClinico
+    from poc_psico.reporte import render_markdown
+
+    reporte = ReporteClinico.model_validate(
+        {
+            "hipotesis": [],
+            "ambiguedades": ["duración poco clara"],
+            "diferenciales": ["trastorno de ansiedad"],
+            "datos_faltantes": ["edad de inicio"],
+            "pruebas": [{"nombre": "inventario de beck", "motivo": "evaluar gravedad"}],
+        }
+    )
+    hip = [{"titulo": "trastorno x", "codigo": "1A", "url": "u", "justificacion": "cumple criterios",
+            "criterios_cumplidos": ["ánimo bajo"], "criterios_no_cumplidos": ["duración"]}]
+    md = render_markdown({"emocionales": ["tristeza"]}, hip, reporte, [{"titulo": "otro x", "codigo": "2B", "url": "u"}], date(2026, 1, 1))
+    for esperado in ["- Duración poco clara", "- Trastorno de ansiedad", "- Edad de inicio", "**Inventario de beck**: Evaluar gravedad",
+                     "### 1. Trastorno x", "**Justificación:** Cumple criterios", "- Ánimo bajo", "- Duración", "- Otro x", "- Tristeza"]:
+        assert esperado in md

@@ -49,6 +49,18 @@ def _id_final(uri) -> str:
     return m.group(1) if m else texto.split("/")[-1]
 
 
+def _url_navegable(item) -> str:
+    """Liga del navegador OMS a la entidad. Para residuales (.Y/.Z) el MCP devuelve '#unspecified'/'#other'
+    sin id, que abre la página general: se reconstruye con el id del padre desde uri_api."""
+    url = item.get("uri_navegable")
+    if not url:
+        return url
+    base, _, fragmento = url.partition("#")
+    if fragmento in ("unspecified", "other") and item.get("uri_api"):
+        return f"{base}#{_id_final(item['uri_api']).replace('/', '%2F')}"
+    return url
+
+
 def ensamblar_candidatos(traza, max_alternativas: int = 10):
     """Candidato = entidad con código MMS y criterios consultados. Alternativa = código MMS sin criterios."""
     mms, criterios = {}, {}
@@ -73,7 +85,7 @@ def ensamblar_candidatos(traza, max_alternativas: int = 10):
             {
                 "codigo": item["codigo_oficial"],
                 "titulo": _sin_html(c.get("titulo") or item.get("titulo")),
-                "url": item.get("uri_navegable"),
+                "url": _url_navegable(item),
                 "definicion": c.get("definicion") or "",
                 "inclusiones": c.get("inclusiones") or [],
                 "exclusiones": c.get("exclusiones") or [],
@@ -81,7 +93,7 @@ def ensamblar_candidatos(traza, max_alternativas: int = 10):
         )
 
     alternativas = [
-        {"codigo": i["codigo_oficial"], "titulo": _sin_html(i.get("titulo")), "url": i.get("uri_navegable")}
+        {"codigo": i["codigo_oficial"], "titulo": _sin_html(i.get("titulo")), "url": _url_navegable(i)}
         for clave, i in mms.items()
         if clave not in criterios and i["codigo_oficial"] not in codigos
     ]

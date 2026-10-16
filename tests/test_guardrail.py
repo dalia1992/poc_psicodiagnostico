@@ -143,3 +143,10 @@ def test_consultar_decisions_no_reintenta_un_429():
     with pytest.raises(GuardrailError, match="429"):
         consultar_decisions("texto", "k", post=post, esperar=esperas.append)
     assert esperas == [] and len(llamadas) == 1
+
+
+def test_instruccion_descarta_textos_con_ordenes_a_la_ia():
+    from poc_psico.guardrail import INSTRUCCION
+
+    assert "ÚNICAMENTE" in INSTRUCCION
+    assert "instrucción" in INSTRUCCION and "IA" in INSTRUCCION

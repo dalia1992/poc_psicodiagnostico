@@ -149,3 +149,15 @@ def test_resumen_traza_explica_por_que_no_hay_candidatos():
     texto = resumen_traza(traza)
     assert "2 código(s) MMS recibidos" in texto
     assert "criterios consultados: ['777']" in texto
+
+
+def test_ligas_residuales_apuntan_a_la_entidad_no_a_la_pagina_general():
+    from poc_psico.traza import _url_navegable
+
+    base = "https://icd.who.int/browse/2026-01/mms/es"
+    sin_especificar = {"uri_api": "http://id.who.int/icd/release/11/2024-01/mms/1563440232/unspecified", "uri_navegable": f"{base}#unspecified"}
+    otro = {"uri_api": "http://id.who.int/icd/release/11/2024-01/mms/1563440232/other", "uri_navegable": f"{base}#other"}
+    normal = {"uri_api": "http://id.who.int/icd/release/11/2024-01/mms/810797047", "uri_navegable": f"{base}#810797047"}
+    assert _url_navegable(sin_especificar) == f"{base}#1563440232%2Funspecified"
+    assert _url_navegable(otro) == f"{base}#1563440232%2Fother"
+    assert _url_navegable(normal) == f"{base}#810797047"

@@ -27,13 +27,13 @@ def validar_hipotesis(reporte: ReporteClinico, candidatos: list):
     return finales, advertencias
 
 
-def _lista(items, vacio="Ninguno identificado") -> str:
-    return "\n".join(f"- {i}" for i in items) if items else f"- {vacio}"
-
-
 def _mayuscula_inicial(texto: str) -> str:
     texto = texto.strip()
     return texto[:1].upper() + texto[1:]
+
+
+def _lista(items, vacio="Ninguno identificado") -> str:
+    return "\n".join(f"- {_mayuscula_inicial(i)}" for i in items) if items else f"- {vacio}"
 
 
 def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, alternativas: list, fecha: date) -> str:
@@ -53,14 +53,14 @@ def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, al
         ("Conductuales", "conductuales"),
         ("Afectación social", "afectacion_social"),
     ):
-        partes += [f"### {etiqueta}", _lista([_mayuscula_inicial(s) for s in sintomas.get(clave) or []])]
+        partes += [f"### {etiqueta}", _lista(sintomas.get(clave) or [])]
 
     partes.append("## 3. Hipótesis diagnósticas (de la más a la menos plausible)")
     for i, h in enumerate(hipotesis, 1):
         partes += [
-            f"### {i}. {h['titulo']} — `{h['codigo']}`",
+            f"### {i}. {_mayuscula_inicial(h['titulo'])} — `{h['codigo']}`",
             f"[Abrir en el navegador OMS]({h['url']})",
-            f"**Justificación:** {h['justificacion']}",
+            f"**Justificación:** {_mayuscula_inicial(h['justificacion'])}",
             "**Criterios cumplidos:**",
             _lista(h["criterios_cumplidos"], "Ninguno indicado"),
             "**Criterios no cumplidos o sin confirmar:**",
@@ -72,14 +72,14 @@ def render_markdown(sintomas: dict, hipotesis: list, reporte: ReporteClinico, al
     partes += ["## 4. Diferenciales y exclusiones", _lista(reporte.diferenciales, "Ninguno indicado")]
     if alternativas:
         partes.append("### Alternativas consultadas y descartadas")
-        partes += [f"- {a['titulo']} (`{a['codigo']}`) — [OMS]({a['url']})" for a in alternativas]
+        partes += [f"- {_mayuscula_inicial(a['titulo'])} (`{a['codigo']}`) — [OMS]({a['url']})" for a in alternativas]
 
     partes += ["## 5. Datos faltantes por recabar", _lista(reporte.datos_faltantes, "Ninguno indicado")]
     partes += [
         "## 6. Pruebas complementarias sugeridas",
         "> Sugerencias a validar por el profesional. Solo se indica el nombre de la prueba: no se incluyen cuestionarios ni formas de calificación.",
     ]
-    partes += [f"- **{p.nombre}**: {p.motivo}" for p in reporte.pruebas] or ["- Ninguna sugerida"]
+    partes += [f"- **{_mayuscula_inicial(p.nombre)}**: {_mayuscula_inicial(p.motivo)}" for p in reporte.pruebas] or ["- Ninguna sugerida"]
     partes += [
         "## 7. Aviso",
         "Este reporte contiene hipótesis de apoyo generadas con ayuda de IA a partir de la CIE-11. No es un diagnóstico: la decisión clínica es del profesional.",
