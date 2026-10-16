@@ -5,6 +5,7 @@ import requests
 from pydantic import BaseModel, Field
 
 from .errores import FlujoDetenido
+from .peticiones import post_openrouter
 from .reintentos import con_reintentos_503
 
 URL_DECISIONS = "https://openrouter.ai/api/alpha/decisions"
@@ -56,18 +57,10 @@ def consultar_decisions(
     texto, api_key, modelo=MODELO_GUARDRAIL, post=requests.post, timeout=30, ruta=None, esperar=time.sleep
 ) -> float:
     def _llamar():
-        try:
-            r = post(
-                URL_DECISIONS,
-                json=construir_payload(texto, modelo),
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                timeout=timeout,
-            )
-        except requests.RequestException as e:
-            raise GuardrailError(f"No se pudo llamar a la Decisions API: {e}") from e
-        if r.status_code != 200:
-            raise GuardrailError(f"La Decisions API respondió {r.status_code}: {r.text[:200]}")
-        return r
+        return post_openrouter(
+            post, URL_DECISIONS, construir_payload(texto, modelo), api_key, timeout, error=GuardrailError,
+            sin_conexion="No se pudo llamar a la Decisions API", respondio="La Decisions API respondió {codigo}",
+        )
 
     # Un 503 (sobrecarga) se reintenta hasta 3 veces con 1, 2 y 4 s; otros errores fallan de inmediato.
     respuesta = con_reintentos_503(_llamar, esperar=esperar)

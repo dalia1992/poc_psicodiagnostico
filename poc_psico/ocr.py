@@ -9,6 +9,8 @@ import requests
 from PIL import Image, UnidentifiedImageError
 
 from .errores import FlujoDetenido
+from .peticiones import post_openrouter
+from .reintentos import con_reintentos_503
 
 URL_OLLAMA = "http://localhost:11434/api/chat"
 MODELO_OCR = "qwen2.5vl:3b"
@@ -19,7 +21,6 @@ URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 # la petición: su respuesta se ignora y max_tokens bajo evita esperar su generación (spike 2026-10-14).
 MODELO_ACOMPANANTE = "openai/gpt-4o-mini"
 LADO_MAXIMO_MISTRAL = 2000
-ESPERAS_SATURACION = (1, 2, 4)  # segundos; el motor de parseo responde 400 "rate limited" de forma intermitente
 INSTRUCCION = (
     "Transcribe literalmente el texto manuscrito en español de esta imagen. "
     "Responde solo con la transcripción, sin comentarios."
@@ -84,8 +85,10 @@ def leer_imagen(ruta, modelo=MODELO_OCR, post=requests.post, url=URL_OLLAMA, tim
     return texto
 
 
-def _saturado(r) -> bool:
-    return r.status_code in (429, 503) or (r.status_code == 400 and "rate limit" in r.text.lower())
+def _saturado(error: Exception) -> bool:
+    """503, 429 o el 400 "rate limited" que el motor de parseo responde de forma intermitente (reintentos 1, 2 y 4 s)."""
+    codigo = getattr(error, "status_code", None)
+    return codigo in (429, 503) or (codigo == 400 and "rate limit" in str(error).lower())
 
 
 def _texto_de_anotaciones(respuesta: dict) -> str:
@@ -115,17 +118,14 @@ def leer_imagen_mistral(
         ]}],
         "plugins": [{"id": "file-parser", "pdf": {"engine": "mistral-ocr"}}],
     }
-    cabeceras = {"Authorization": f"Bearer {api_key}"}
-    for intento in range(len(ESPERAS_SATURACION) + 1):
-        try:
-            r = post(url, json=payload, headers=cabeceras, timeout=timeout)
-        except requests.RequestException as e:
-            raise OcrError(f"No se pudo conectar con OpenRouter: {e}") from e
-        if r.status_code == 200:
-            break
-        if not _saturado(r) or intento == len(ESPERAS_SATURACION):
-            raise OcrError(f"OpenRouter respondió {r.status_code}: {r.text[:200]}")
-        esperar(ESPERAS_SATURACION[intento])
+
+    def llamar():
+        return post_openrouter(
+            post, url, payload, api_key, timeout, error=OcrError, sin_conexion="No se pudo conectar con OpenRouter",
+            respondio="OpenRouter respondió {codigo}",
+        )
+
+    r = con_reintentos_503(llamar, esperar=esperar, reintentable=_saturado)
     try:
         texto = _texto_de_anotaciones(r.json())
     except (KeyError, IndexError, TypeError, ValueError) as e:

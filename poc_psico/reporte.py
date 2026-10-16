@@ -66,6 +66,9 @@ def _mayuscula_inicial(texto: str) -> str:
     return texto[:1].upper() + texto[1:]
 
 
+NINGUNO_INDICADO = "Ninguno indicado"
+
+
 def _lista(items, vacio="Ninguno identificado") -> str:
     return "\n".join(f"- {_mayuscula_inicial(i)}" for i in items) if items else f"- {vacio}"
 
@@ -106,19 +109,19 @@ def render_markdown(
             f"[Abrir en el navegador OMS]({h['url']})",
             f"**Justificación:** {_mayuscula_inicial(h['justificacion'])}",
             "**Criterios cumplidos:**",
-            _lista(h["criterios_cumplidos"], "Ninguno indicado"),
+            _lista(h["criterios_cumplidos"], NINGUNO_INDICADO),
             "**Criterios no cumplidos o sin confirmar:**",
-            _lista(h["criterios_no_cumplidos"], "Ninguno indicado"),
+            _lista(h["criterios_no_cumplidos"], NINGUNO_INDICADO),
         ]
     if reporte.ambiguedades:
         partes += ["### Ambigüedades", _lista(reporte.ambiguedades)]
 
-    partes += ["## 4. Diferenciales y exclusiones", _lista(reporte.diferenciales, "Ninguno indicado")]
+    partes += ["## 4. Diferenciales y exclusiones", _lista(reporte.diferenciales, NINGUNO_INDICADO)]
     if alternativas:
         partes.append("### Alternativas consultadas y descartadas")
         partes += [f"- {_mayuscula_inicial(a['titulo'])} (`{a['codigo']}`) — [OMS]({a['url']})" for a in alternativas]
 
-    partes += ["## 5. Datos faltantes por recabar", _lista(reporte.datos_faltantes, "Ninguno indicado")]
+    partes += ["## 5. Datos faltantes por recabar", _lista(reporte.datos_faltantes, NINGUNO_INDICADO)]
     partes += [
         "## 6. Pruebas complementarias sugeridas",
         "> Sugerencias a validar por el profesional. Solo se indica el nombre de la prueba: no se incluyen cuestionarios ni formas de calificación.",

@@ -21,27 +21,34 @@ def _espera(intento: int) -> int:
     return 2**intento  # 1, 2, 4
 
 
-def con_reintentos_503(funcion, *args, esperar=time.sleep, **kwargs):
+def _segundos_de_espera(error: Exception, intento: int, reintentable=es_503):
+    """Segundos a esperar antes de reintentar, o None si el error no es reintentable o ya se agotaron los reintentos."""
+    if not reintentable(error) or intento == REINTENTOS:
+        return None
+    segundos = _espera(intento)
+    logger.warning("503 (servicio sobrecargado): reintento %d de %d en %d s", intento + 1, REINTENTOS, segundos)
+    return segundos
+
+
+def con_reintentos_503(funcion, *args, esperar=time.sleep, reintentable=es_503, **kwargs):
     for intento in range(REINTENTOS + 1):
         try:
             return funcion(*args, **kwargs)
         except Exception as error:
-            if not es_503(error) or intento == REINTENTOS:
+            segundos = _segundos_de_espera(error, intento, reintentable)
+            if segundos is None:
                 raise
-            segundos = _espera(intento)
-            logger.warning("503 (servicio sobrecargado): reintento %d de %d en %d s", intento + 1, REINTENTOS, segundos)
             esperar(segundos)
 
 
-async def acon_reintentos_503(funcion, *args, aesperar=asyncio.sleep, **kwargs):
+async def acon_reintentos_503(funcion, *args, aesperar=asyncio.sleep, reintentable=es_503, **kwargs):
     for intento in range(REINTENTOS + 1):
         try:
             return await funcion(*args, **kwargs)
         except Exception as error:
-            if not es_503(error) or intento == REINTENTOS:
+            segundos = _segundos_de_espera(error, intento, reintentable)
+            if segundos is None:
                 raise
-            segundos = _espera(intento)
-            logger.warning("503 (servicio sobrecargado): reintento %d de %d en %d s", intento + 1, REINTENTOS, segundos)
             await aesperar(segundos)
 
 
@@ -70,3 +77,8 @@ def con_reintentos_formato(funcion, *args, corregir=None, **kwargs):
             logger.warning("Salida con formato inválido: reintento %d de %d", intento + 1, REINTENTOS_FORMATO)
             if corregir:
                 args = corregir(args, error)
+
+
+def invocar_estructurado(invocar, mensajes, esperar=time.sleep, corregir=None):
+    """Llama al LLM con salida estructurada: reintenta un 503 con espera y una salida con formato inválido sin ella."""
+    return con_reintentos_formato(con_reintentos_503, invocar, mensajes, esperar=esperar, corregir=corregir)

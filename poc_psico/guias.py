@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field
 from .errores import FlujoDetenido
 from .guardrail import MODELO_DECISIONS, URL_DECISIONS
 from .ocr import URL_OPENROUTER
-from .reintentos import con_reintentos_503, con_reintentos_formato
+from .peticiones import post_openrouter
+from .reintentos import con_reintentos_503, invocar_estructurado
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def crear_decisor_fuentes(llm, esperar=time.sleep):
             ],
         }
         mensajes = [("system", PROMPT_DECISOR), ("human", json.dumps(contexto, ensure_ascii=False))]
-        return con_reintentos_formato(con_reintentos_503, estructurado.invoke, mensajes, esperar=esperar)
+        return invocar_estructurado(estructurado.invoke, mensajes, esperar)
 
     return decidir
 
@@ -140,18 +141,12 @@ def crear_decisor_jev(api_key: str, respaldo=None, post=requests.post, modelo=MO
                 }
             },
         }
-        cabeceras = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
         def llamar():
-            try:
-                r = post(URL_DECISIONS, json=payload, headers=cabeceras, timeout=timeout)
-            except requests.RequestException as e:
-                raise FlujoDetenido(f"No se pudo llamar a la Decisions API (JEV): {e}") from e
-            if r.status_code != 200:
-                error = FlujoDetenido(f"La Decisions API (JEV) respondió {r.status_code}: {r.text[:200]}")
-                error.status_code = r.status_code
-                raise error
-            return r
+            return post_openrouter(
+                post, URL_DECISIONS, payload, api_key, timeout, sin_conexion="No se pudo llamar a la Decisions API (JEV)",
+                respondio="La Decisions API (JEV) respondió {codigo}",
+            )
 
         respuesta = con_reintentos_503(llamar, esperar=esperar)
         try:
@@ -249,18 +244,12 @@ def _buscar(tipo, temas, api_key, post, url, modelo, timeout, esperar) -> list:
         "messages": [{"role": "user", "content": enunciado.format(temas=temas) + pie}],
         "plugins": [{"id": "web", "engine": MOTOR, "include_domains": [dominio], "max_results": max_resultados}],
     }
-    cabeceras = {"Authorization": f"Bearer {api_key}"}
 
     def llamar():
-        try:
-            r = post(url, json=payload, headers=cabeceras, timeout=timeout)
-        except requests.RequestException as e:
-            raise FlujoDetenido(f"No se pudo conectar con OpenRouter para buscar guías: {e}") from e
-        if r.status_code != 200:
-            error = FlujoDetenido(f"OpenRouter respondió {r.status_code} al buscar guías: {r.text[:200]}")
-            error.status_code = r.status_code  # lo lee es_503 para reintentar solo ese caso
-            raise error
-        return r
+        return post_openrouter(
+            post, url, payload, api_key, timeout, sin_conexion="No se pudo conectar con OpenRouter para buscar guías",
+            respondio="OpenRouter respondió {codigo} al buscar guías",
+        )
 
     r = con_reintentos_503(llamar, esperar=esperar)
     try:
