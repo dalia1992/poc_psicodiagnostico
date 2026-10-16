@@ -1,4 +1,4 @@
-"""Guardrail de contexto clínico: Decisions API de OpenRouter, con plan B por LLM."""
+"""Guardrail de contexto clínico: Decisions API de OpenRouter con el modelo JEV de TypeSafe, con plan B por LLM."""
 import time
 
 import requests
@@ -8,7 +8,10 @@ from .errores import FlujoDetenido
 from .reintentos import con_reintentos_503
 
 URL_DECISIONS = "https://openrouter.ai/api/alpha/decisions"
-MODELO_GUARDRAIL = "respan/span-01-lite:free"
+# JEV devuelve probabilidades (pregunta noul) en ~0.3 s por unos US$0.00002; sustituye a respan/span-01-lite:free (2026-10-15).
+# Versión fija para reproducir resultados; "~typesafe/jev-latest" apunta siempre a la más reciente.
+MODELO_DECISIONS = "typesafe/jev-1.14-20261014"
+MODELO_GUARDRAIL = MODELO_DECISIONS
 PREGUNTA_ID = "es_clinico"
 INSTRUCCION = (
     "El texto es ÚNICAMENTE una nota o viñeta clínica de psicología que describe a un paciente "

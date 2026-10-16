@@ -1,7 +1,7 @@
 """Búsqueda de guías clínicas (IMSS, APA y OMS) con el plugin web de OpenRouter (filtro de dominio del lado del servidor).
 
-El IMSS se busca siempre primero. Después un LLM decide, con salida estructurada, si hace falta buscar también en la APA
-y/o la OMS. El LLM solo elige la fuente: las consultas las arma el código con los títulos de las entidades CIE-11
+El IMSS se busca siempre primero. Después un decisor (JEV de TypeSafe vía la Decisions API, con un LLM de respaldo) decide si hace falta buscar también en la APA
+y/o la OMS. El decisor solo elige la fuente: las consultas las arma el código con los títulos de las entidades CIE-11
 candidatas, nunca con datos del paciente. Las ligas que devuelve la web pasan por `solo_dominios`, que descarta cualquier
 liga fuera del dominio buscado.
 """
@@ -16,6 +16,7 @@ import requests
 from pydantic import BaseModel, Field
 
 from .errores import FlujoDetenido
+from .guardrail import MODELO_DECISIONS, URL_DECISIONS
 from .ocr import URL_OPENROUTER
 from .reintentos import con_reintentos_503, con_reintentos_formato
 
@@ -93,6 +94,83 @@ def crear_decisor_fuentes(llm, esperar=time.sleep):
         }
         mensajes = [("system", PROMPT_DECISOR), ("human", json.dumps(contexto, ensure_ascii=False))]
         return con_reintentos_formato(con_reintentos_503, estructurado.invoke, mensajes, esperar=esperar)
+
+    return decidir
+
+
+CRITERIOS_JEV = {
+    "apa": (
+        "Conviene consultar además la APA: las guías del IMSS no cubren bien el diagnóstico (son pocas, genéricas o no "
+        "hay) o faltan guías de evaluación o de intervención, sobre todo si faltan muchos datos clínicos del caso."
+    ),
+    "oms": "Conviene consultar además la OMS (mhGAP): ni el IMSS ni la APA bastarían para orientar la evaluación o el manejo.",
+    "ambas": "Conviene consultar además la APA y la OMS.",
+    "ninguna": "Las guías del IMSS ya cubren el diagnóstico y los datos disponibles: no hacen falta más fuentes.",
+}
+FUENTES_POR_OPCION_JEV = {"apa": ["apa"], "oms": ["oms"], "ambas": ["apa", "oms"], "ninguna": []}
+_PLACEHOLDER = re.compile(r"\[[A-Z]+_\d+\]")
+
+
+def _estado_jev(candidatos: list, sintomas: dict, guias_imss: list) -> str:
+    """Texto que ve JEV: títulos CIE-11, datos faltantes (sin placeholders de personas) y títulos de las guías del IMSS."""
+    faltantes = [d for d in sintomas.get("datos_faltantes") or [] if not _PLACEHOLDER.search(d)]
+    titulos_imss = [g["titulo"] for g in guias_imss]
+    return (
+        "Diagnósticos candidatos: " + "; ".join(c["titulo"] for c in candidatos[:MAX_CANDIDATOS]) + ".\n"
+        "Datos clínicos faltantes: " + ("; ".join(faltantes) if faltantes else "ninguno") + ".\n"
+        "Guías del IMSS encontradas: " + ("; ".join(titulos_imss) if titulos_imss else "ninguna") + "."
+    )
+
+
+def crear_decisor_jev(api_key: str, respaldo=None, post=requests.post, modelo=MODELO_DECISIONS, timeout=30, esperar=time.sleep):
+    """Decisor con JEV: una pregunta `choice` (apa, oms, ambas, ninguna) que devuelve una probabilidad por opción.
+
+    Tarda ~0.3 s y cuesta ~US$0.00002. Si JEV falla, usa `respaldo` (otro decisor, p. ej. el de LLM); sin respaldo levanta
+    FlujoDetenido. La opción elegida se traduce a fuentes con un mapa fijo; el modelo no escribe ninguna consulta."""
+
+    def consultar(candidatos, sintomas, guias_imss) -> DecisionFuentes:
+        payload = {
+            "model": modelo,
+            "state": _estado_jev(candidatos, sintomas, guias_imss),
+            "questions": {
+                "fuente": {
+                    "type": "choice",
+                    "instructions": "Decide qué fuentes adicionales de guías clínicas conviene consultar además del IMSS.",
+                    "criteria": CRITERIOS_JEV,
+                }
+            },
+        }
+        cabeceras = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        def llamar():
+            try:
+                r = post(URL_DECISIONS, json=payload, headers=cabeceras, timeout=timeout)
+            except requests.RequestException as e:
+                raise FlujoDetenido(f"No se pudo llamar a la Decisions API (JEV): {e}") from e
+            if r.status_code != 200:
+                error = FlujoDetenido(f"La Decisions API (JEV) respondió {r.status_code}: {r.text[:200]}")
+                error.status_code = r.status_code
+                raise error
+            return r
+
+        respuesta = con_reintentos_503(llamar, esperar=esperar)
+        try:
+            respondida = respuesta.json()["answers"]["fuente"]
+            opcion, probabilidades, confianza = respondida["choice"], respondida["probabilities"], respondida["confidence"]
+            fuentes = FUENTES_POR_OPCION_JEV[opcion]
+            detalle = ", ".join(f"{k} {float(v):.2f}" for k, v in probabilidades.items())
+            return DecisionFuentes(fuentes=fuentes, razon=f"JEV eligió {opcion} (probabilidades: {detalle}; confianza {float(confianza):.2f})")
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise FlujoDetenido(f"Formato inesperado de la Decisions API (JEV): {e!r}") from e
+
+    def decidir(candidatos: list, sintomas: dict, guias_imss: list) -> DecisionFuentes:
+        try:
+            return consultar(candidatos, sintomas, guias_imss)
+        except Exception as e:
+            if respaldo is None:
+                raise
+            logger.warning("JEV no respondió (%s): se usa el decisor de respaldo", e)
+            return respaldo(candidatos, sintomas, guias_imss)
 
     return decidir
 

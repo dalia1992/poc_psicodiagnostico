@@ -30,7 +30,7 @@ class RespuestaFalsa:
 
 def test_payload_contiene_modelo_estado_y_pregunta():
     p = construir_payload("texto anonimizado")
-    assert p["model"] == "respan/span-01-lite:free"
+    assert p["model"] == "typesafe/jev-1.14-20261014"
     assert p["state"] == "texto anonimizado"
     assert "es_clinico" in p["questions"]
 

@@ -8,6 +8,7 @@ from poc_psico.guias import (
     buscar_guias,
     consulta_desde_candidatos,
     crear_decisor_fuentes,
+    crear_decisor_jev,
     solo_dominios,
 )
 
@@ -294,3 +295,78 @@ def test_el_decisor_usa_salida_estructurada_y_solo_envia_titulos_datos_faltantes
 def test_el_esquema_solo_admite_fuentes_apa_u_oms():
     with pytest.raises(Exception):
         DecisionFuentes(fuentes=["imss"], razon="x")
+
+
+# ---- decisor JEV (Decisions API)
+
+def respuesta_jev(eleccion, probs=None, confianza=0.9):
+    probs = probs or {eleccion: 0.9}
+    return RespuestaFalsa(cuerpo={"answers": {"fuente": {"type": "choice", "choice": eleccion, "probabilities": probs,
+                                                         "confidence": confianza}}})
+
+
+GUIAS_IMSS = [{"id": "G1", "titulo": "GPC IMSS depresión", "url": "https://www.imss.gob.mx/x", "extracto": "E" * 900}]
+SINTOMAS_PII = {"emocionales": ["tristeza"], "datos_faltantes": ["duración", "[PER_1] no dijo su edad"], "edad": 34}
+
+
+@pytest.mark.parametrize("eleccion,fuentes", [("apa", ["apa"]), ("oms", ["oms"]), ("ambas", ["apa", "oms"]), ("ninguna", [])])
+def test_jev_traduce_la_opcion_elegida_a_fuentes(eleccion, fuentes):
+    decidir = crear_decisor_jev("clave", post=PostFalso(respuesta_jev(eleccion)))
+    assert decidir(CANDIDATOS, SINTOMAS, GUIAS_IMSS).fuentes == fuentes
+
+
+def test_jev_envia_modelo_pregunta_choice_con_las_cuatro_opciones_y_un_estado_sin_datos_del_paciente():
+    post = PostFalso(respuesta_jev("apa"))
+    crear_decisor_jev("clave", post=post)(CANDIDATOS, SINTOMAS_PII, GUIAS_IMSS)
+    llamada = post.llamadas[0]
+    assert llamada["url"].endswith("/api/alpha/decisions") and llamada["headers"]["Authorization"] == "Bearer clave"
+    cuerpo = llamada["json"]
+    assert cuerpo["model"].startswith("typesafe/jev")
+    pregunta = cuerpo["questions"]["fuente"]
+    assert pregunta["type"] == "choice" and set(pregunta["criteria"]) == {"apa", "oms", "ambas", "ninguna"}
+    estado = cuerpo["state"]
+    assert "Trastorno depresivo de episodio único" in estado and "duración" in estado and "GPC IMSS depresión" in estado
+    assert "[PER_1]" not in estado and "tristeza" not in estado and "6A70" not in estado
+    assert "https://www.imss.gob.mx" not in estado and "E" * 400 not in estado
+
+
+def test_jev_deja_en_la_razon_la_opcion_sus_probabilidades_y_la_confianza():
+    decidir = crear_decisor_jev("clave", post=PostFalso(respuesta_jev("apa", {"apa": 0.95, "oms": 0.04, "ninguna": 0.01, "ambas": 0}, 0.92)))
+    razon = decidir(CANDIDATOS, SINTOMAS, GUIAS_IMSS).razon
+    assert "apa" in razon and "0.95" in razon and "0.92" in razon
+
+
+def test_jev_reintenta_un_503():
+    esperas = []
+    decidir = crear_decisor_jev("clave", post=PostFalso(RespuestaFalsa(503, texto="overload"), respuesta_jev("oms")), esperar=esperas.append)
+    assert decidir(CANDIDATOS, SINTOMAS, GUIAS_IMSS).fuentes == ["oms"] and esperas == [1]
+
+
+@pytest.mark.parametrize("respuesta", [
+    RespuestaFalsa(500, texto="caído"),
+    RespuestaFalsa(cuerpo={"otra": 1}),
+    respuesta_jev("bing"),
+    requests.ConnectionError("sin red"),
+])
+def test_si_jev_falla_sin_respaldo_levanta_flujo_detenido(respuesta):
+    with pytest.raises(FlujoDetenido):
+        crear_decisor_jev("clave", post=PostFalso(respuesta))(CANDIDATOS, SINTOMAS, GUIAS_IMSS)
+
+
+def test_si_jev_falla_se_usa_el_decisor_de_respaldo():
+    respaldo = Decisor(["oms"])
+    decidir = crear_decisor_jev("clave", post=PostFalso(RespuestaFalsa(500, texto="caído")), respaldo=respaldo)
+    assert decidir(CANDIDATOS, SINTOMAS, GUIAS_IMSS).fuentes == ["oms"] and len(respaldo.recibido) == 1
+
+
+def test_si_jev_responde_no_se_llama_al_respaldo():
+    respaldo = Decisor(["oms"])
+    crear_decisor_jev("clave", post=PostFalso(respuesta_jev("ninguna")), respaldo=respaldo)(CANDIDATOS, SINTOMAS, GUIAS_IMSS)
+    assert respaldo.recibido == []
+
+
+def test_buscar_guias_con_jev_busca_en_las_fuentes_elegidas():
+    busqueda = PostFalso(respuesta_con(IMSS), respuesta_con(APA), respuesta_con(OMS))
+    decidir = crear_decisor_jev("clave", post=PostFalso(respuesta_jev("ambas")))
+    guias = buscar_guias(CANDIDATOS, SINTOMAS, "clave", decidir, post=busqueda)
+    assert [g["tipo"] for g in guias] == ["imss", "apa", "oms"] and "jev" in guias[1]["motivo"].lower()

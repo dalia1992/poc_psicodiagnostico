@@ -1,4 +1,4 @@
-"""Explora la Decisions API con span-01-lite. Uso: python scripts/spike_guardrail.py (lee OPENROUTER_API_KEY del .env o del entorno)"""
+"""Explora la Decisions API con JEV (typesafe). Uso: python scripts/spike_guardrail.py (lee OPENROUTER_API_KEY del .env o del entorno)"""
 import json
 import os
 import pathlib
@@ -8,7 +8,7 @@ import requests
 from dotenv import load_dotenv
 
 URL = "https://openrouter.ai/api/alpha/decisions"
-MODELO = "respan/span-01-lite:free"
+MODELO = "typesafe/jev-1.14-20261014"
 FIXTURES = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
 TEXTOS = {
